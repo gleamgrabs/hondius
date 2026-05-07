@@ -14,6 +14,8 @@ export function generateStaticParams() {
   return getAllOutbreakSlugs().map((slug) => ({ slug }));
 }
 
+export const revalidate = 60;
+
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const data = getOutbreakBySlug(params.slug);
   if (!data) return {};

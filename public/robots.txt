@@ -7,7 +7,7 @@ User-agent: *
 Disallow: /api/
 
 # Host
-Host: https://outbreaktracker.example.com
+Host: https://hondius-watch.com
 
 # Sitemaps
-Sitemap: https://outbreaktracker.example.com/sitemap.xml
+Sitemap: https://hondius-watch.com/sitemap.xml

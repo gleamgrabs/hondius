@@ -23,16 +23,18 @@ interface OutbreakMapProps {
   cases: CaseEntry[];
   route: RouteWaypoint[];
   date: string;
+  /** Outbreak slug — enables client-side polling of /api/outbreaks/{slug}/cases. */
+  slug?: string;
 }
 
-export default function OutbreakMap({ cases, route, date }: OutbreakMapProps) {
+export default function OutbreakMap({ cases, route, date, slug }: OutbreakMapProps) {
   return (
     <figure className="my-8">
       <div
         className="border border-color-rule overflow-hidden"
         style={{ height: "clamp(360px, 45vw, 560px)" }}
       >
-        <MapInner cases={cases} route={route} />
+        <MapInner cases={cases} route={route} outbreakSlug={slug} />
       </div>
       <figcaption className="mt-3 text-xs text-color-text-muted max-w-prose">
         Map showing the route of MV Hondius and confirmed cases by country as of{" "}

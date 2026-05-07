@@ -22,6 +22,8 @@ export function generateStaticParams() {
   return getAllOutbreakSlugs().map((slug) => ({ slug }));
 }
 
+export const revalidate = 60;
+
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const data = getOutbreakBySlug(params.slug);
   if (!data) return {};
@@ -210,6 +212,7 @@ export default function OutbreakPage({ params }: Props) {
               cases={cases}
               route={route}
               date={formatDate(meta.lastUpdated)}
+              slug={meta.slug}
             />
             <MapTable cases={cases} route={route} />
 

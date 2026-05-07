@@ -17,6 +17,8 @@ services:
       RESEND_API_KEY: ${RESEND_API_KEY}
       EMAIL_FROM: ${EMAIL_FROM}
       BROADCAST_ADMIN_TOKEN: ${BROADCAST_ADMIN_TOKEN}
+      INGEST_TOKEN: ${INGEST_TOKEN}
+      ADMIN_TOKEN: ${ADMIN_TOKEN}
     volumes:
       - hondius_data:/app/data
     networks:

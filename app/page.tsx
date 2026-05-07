@@ -21,6 +21,9 @@ export const metadata: Metadata = {
     "Live tactical readout: hantavirus outbreak aboard MV Hondius. Cases, deaths, ship route, contact-tracing.",
 };
 
+// ISR: страница ре-генерируется не чаще раза в 60 секунд после INSERT в SQLite.
+export const revalidate = 60;
+
 export default function HomePage() {
   const allOutbreaks = getAllOutbreaks();
   const allMetas = getAllOutbreakMetas();
@@ -146,6 +149,7 @@ export default function HomePage() {
                 cases={featuredData.cases}
                 route={featuredData.route}
                 date={formatDate(featuredData.meta.lastUpdated)}
+                slug={featuredData.meta.slug}
               />
 
               {/* 4. Timeline preview */}

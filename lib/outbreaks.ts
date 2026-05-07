@@ -1,24 +1,30 @@
 import type { OutbreakData, OutbreakMeta } from "@/lib/types";
 import { hondiusOutbreak } from "@/data/outbreaks/hondius-2026";
+import { mergeLiveData } from "@/lib/live-data";
 
-const ALL_OUTBREAKS: OutbreakData[] = [hondiusOutbreak];
+const BASELINE: OutbreakData[] = [hondiusOutbreak];
+
+function withLive(data: OutbreakData): OutbreakData {
+  return mergeLiveData(data, data.meta.slug);
+}
 
 export function getAllOutbreaks(): OutbreakData[] {
-  return ALL_OUTBREAKS;
+  return BASELINE.map(withLive);
 }
 
 export function getAllOutbreakMetas(): OutbreakMeta[] {
-  return ALL_OUTBREAKS.map((o) => o.meta);
+  return getAllOutbreaks().map((o) => o.meta);
 }
 
 export function getOutbreakBySlug(slug: string): OutbreakData | undefined {
-  return ALL_OUTBREAKS.find((o) => o.meta.slug === slug);
+  const baseline = BASELINE.find((o) => o.meta.slug === slug);
+  return baseline ? withLive(baseline) : undefined;
 }
 
 export function getOutbreaksByPathogen(pathogenSlug: string): OutbreakData[] {
-  return ALL_OUTBREAKS.filter((o) => o.meta.pathogenSlug === pathogenSlug);
+  return getAllOutbreaks().filter((o) => o.meta.pathogenSlug === pathogenSlug);
 }
 
 export function getAllOutbreakSlugs(): string[] {
-  return ALL_OUTBREAKS.map((o) => o.meta.slug);
+  return BASELINE.map((o) => o.meta.slug);
 }

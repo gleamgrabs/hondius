@@ -23,6 +23,66 @@ import { formatDate } from "@/lib/seo";
 interface MapInnerProps {
   cases: CaseEntry[];
   route: RouteWaypoint[];
+  /** Slug for live polling. If omitted, no client-side polling. */
+  outbreakSlug?: string;
+}
+
+/**
+ * Подгружает свежие cases из /api/outbreaks/{slug}/cases раз в 60 сек.
+ * - Только когда вкладка видна (document.visibilityState === 'visible').
+ * - Initial render использует SSR-cases (для SEO + быстрого первого фрейма).
+ * - Replacement маркеров происходит только если набор реально изменился (по id+caseCount+deaths).
+ */
+function useLiveCases(initial: CaseEntry[], slug?: string): CaseEntry[] {
+  const [cases, setCases] = useState<CaseEntry[]>(initial);
+
+  useEffect(() => {
+    if (!slug || typeof window === "undefined") return;
+
+    let cancelled = false;
+    const url = `/api/outbreaks/${encodeURIComponent(slug)}/cases`;
+
+    async function fetchOnce() {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) return;
+        const json = (await res.json()) as { ok: boolean; cases?: CaseEntry[] };
+        if (cancelled || !json.ok || !Array.isArray(json.cases)) return;
+        setCases((prev) => (sameSignature(prev, json.cases!) ? prev : json.cases!));
+      } catch {
+        /* network error — silent, will retry on next interval */
+      }
+    }
+
+    // Первый запрос — после mount.
+    fetchOnce();
+
+    // Polling 60s, только если вкладка видна.
+    const id = window.setInterval(fetchOnce, 60_000);
+
+    // Сразу подтягиваем при возврате к вкладке.
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") fetchOnce();
+    };
+    document.addEventListener("visibilitychange", onVisibility);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
+  }, [slug]);
+
+  return cases;
+}
+
+function sameSignature(a: CaseEntry[], b: CaseEntry[]): boolean {
+  if (a.length !== b.length) return false;
+  const sig = (c: CaseEntry) =>
+    `${c.id}|${c.caseCount}|${c.deaths}|${c.status}|${c.coords.join(",")}`;
+  const aSet = new Set(a.map(sig));
+  return b.every((c) => aSet.has(sig(c)));
 }
 
 function FitBounds() {
@@ -111,7 +171,12 @@ function AnimatedShip() {
   return <Marker position={pos} icon={SHIP_ICON} interactive={false} />;
 }
 
-export default function MapInner({ cases, route }: MapInnerProps) {
+export default function MapInner({
+  cases,
+  route,
+  outbreakSlug,
+}: MapInnerProps) {
+  const liveCases = useLiveCases(cases, outbreakSlug);
   return (
     <MapContainer
       center={[0, -20]}
@@ -202,7 +267,7 @@ export default function MapInner({ cases, route }: MapInnerProps) {
       })}
 
       {/* Pulsating case markers */}
-      {cases.map((c) => {
+      {liveCases.map((c) => {
         const size = radiusForCases(c.caseCount) * 2;
         return (
           <Marker
