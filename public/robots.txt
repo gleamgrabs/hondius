@@ -1,0 +1,13 @@
+# *
+User-agent: *
+Allow: /
+
+# *
+User-agent: *
+Disallow: /api/
+
+# Host
+Host: https://outbreaktracker.example.com
+
+# Sitemaps
+Sitemap: https://outbreaktracker.example.com/sitemap.xml

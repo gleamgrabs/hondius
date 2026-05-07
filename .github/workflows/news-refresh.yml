@@ -1,0 +1,48 @@
+name: news-refresh
+
+on:
+  schedule:
+    # Every 2 hours
+    - cron: "0 */2 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  poll:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Poll WHO/ECDC RSS feeds
+        run: node scripts/refresh-news.mjs
+
+      - name: Open PR if changes
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: news-refresh
+          title: "news: candidate items for review"
+          commit-message: "news: refresh candidates"
+          body: |
+            Auto-generated digest from WHO + ECDC feeds.
+
+            Action items:
+            - Review `.github/news-candidates.json`
+            - Add real events to `data/outbreaks/hondius-2026/events.ts`
+            - Update `meta.ts` stats if cases/deaths changed
+            - Bump `lastUpdated` in `meta.ts`
+            - Merge — Vercel/Hetzner redeploys automatically
+
+            **No data files were modified by this action.** Manual edits required.
+          labels: |
+            news
+            review-needed
+          add-paths: |
+            .github/news-candidates.json

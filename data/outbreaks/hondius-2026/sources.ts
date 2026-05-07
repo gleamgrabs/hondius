@@ -1,0 +1,67 @@
+import type { SourceEntry } from "@/lib/types";
+
+export const sources: SourceEntry[] = [
+  {
+    id: 1,
+    title: "Hantavirus disease outbreak on a cruise ship – global",
+    publisher: "World Health Organization",
+    url: "https://www.who.int/emergencies/disease-outbreak-news/",
+    accessed: "2026-05-07",
+    publishedDate: "2026-05-04",
+  },
+  {
+    id: 2,
+    title: "Cruise ship denied port access as hantavirus cases rise",
+    publisher: "Reuters",
+    url: "https://www.reuters.com/",
+    accessed: "2026-05-07",
+    publishedDate: "2026-05-07",
+  },
+  {
+    id: 3,
+    title: "Hantavirus on cruise ship: timeline and passenger tracking",
+    publisher: "AP News",
+    url: "https://apnews.com/",
+    accessed: "2026-05-07",
+    publishedDate: "2026-05-06",
+  },
+  {
+    id: 4,
+    title: "MV Hondius hantavirus outbreak: what we know",
+    publisher: "Euronews",
+    url: "https://www.euronews.com/",
+    accessed: "2026-05-07",
+    publishedDate: "2026-05-07",
+  },
+  {
+    id: 5,
+    title: "Official statement on MV Hondius health situation",
+    publisher: "Oceanwide Expeditions",
+    url: "https://oceanwide-expeditions.com/",
+    accessed: "2026-05-07",
+    publishedDate: "2026-05-05",
+  },
+  {
+    id: 6,
+    title: "Cruise ship hantavirus: passengers tracked across continents",
+    publisher: "Meduza",
+    url: "https://meduza.io/en/",
+    accessed: "2026-05-07",
+    publishedDate: "2026-05-06",
+  },
+  {
+    id: 7,
+    title: "Hantavirus: background and clinical information",
+    publisher: "Centers for Disease Control and Prevention (CDC)",
+    url: "https://www.cdc.gov/hantavirus/",
+    accessed: "2026-05-07",
+  },
+  {
+    id: 8,
+    title: "Andes hantavirus — epidemiological update",
+    publisher: "European Centre for Disease Prevention and Control (ECDC)",
+    url: "https://www.ecdc.europa.eu/",
+    accessed: "2026-05-07",
+    publishedDate: "2026-05-06",
+  },
+];
