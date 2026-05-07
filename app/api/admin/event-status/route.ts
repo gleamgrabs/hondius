@@ -9,7 +9,8 @@ export const dynamic = "force-dynamic";
 const RequestSchema = z.object({
   id: z.string().min(1),
   status: z.enum(["live", "pending", "rejected"]),
-  outbreakSlug: z.string().min(1),
+  outbreakSlug: z.string().min(1).optional().default("hondius-2026"),
+  type: z.enum(["event", "case"]).optional().default("event"),
 });
 
 export async function POST(req: Request) {
@@ -41,20 +42,39 @@ export async function POST(req: Request) {
     );
   }
 
+  const { id, status, outbreakSlug, type } = parsed.data;
   getDb();
-  const ok = setEventStatus(parsed.data.id, parsed.data.status, "admin");
+
+  let ok = false;
+  if (type === "event") {
+    ok = setEventStatus(id, status, "admin");
+  } else {
+    // type === "case" — обновляем publish_status в live_cases
+    const db = getDb();
+    const result = db
+      .prepare(
+        "UPDATE live_cases SET publish_status = ?, updated_at = ? WHERE id = ?"
+      )
+      .run(status, Date.now(), id);
+    ok = result.changes > 0;
+  }
+
   if (!ok) {
-    return NextResponse.json({ ok: false, error: "Event not found" }, { status: 404 });
+    return NextResponse.json(
+      { ok: false, error: `${type} not found` },
+      { status: 404 }
+    );
   }
 
   try {
-    revalidatePath(`/outbreak/${parsed.data.outbreakSlug}`);
-    revalidatePath(`/outbreak/${parsed.data.outbreakSlug}/timeline`);
+    revalidatePath(`/outbreak/${outbreakSlug}`);
+    revalidatePath(`/outbreak/${outbreakSlug}/timeline`);
+    revalidatePath(`/outbreak/${outbreakSlug}/cases`);
     revalidatePath("/");
     revalidatePath("/admin");
   } catch {
     /* ignore */
   }
 
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, type, id, status });
 }
