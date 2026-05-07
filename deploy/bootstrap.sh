@@ -1,22 +1,34 @@
 #!/usr/bin/env bash
-# bootstrap.sh — one-shot Hetzner provisioning for Hondius Watch.
+# bootstrap.sh — Hetzner provisioning for Hondius Watch.
 #
-# Usage on the server (as root):
+# WORKFLOW A (recommended — matches typical multi-project server pattern):
+#   ssh root@62.238.9.117
+#   mkdir -p /opt/hondius
+#   nano /opt/hondius/.env       # paste keys (template below)
 #   bash <(curl -fsSL https://raw.githubusercontent.com/gleamgrabs/hondius/main/deploy/bootstrap.sh)
 #
-# Or, if you've already cloned the repo:
-#   sudo bash /opt/hondius/deploy/bootstrap.sh
+# WORKFLOW B (one-liner — keys via env vars):
+#   ssh root@62.238.9.117
+#   RESEND_API_KEY=re_xxx LETSENCRYPT_EMAIL=you@x.com \
+#     bash <(curl -fsSL https://raw.githubusercontent.com/gleamgrabs/hondius/main/deploy/bootstrap.sh)
+#
+# .env template (Workflow A):
+# ─────────────────────────────────────────
+# NEXT_PUBLIC_SITE_URL=https://hondius-watch.com
+# RESEND_API_KEY=re_your_real_key_here
+# EMAIL_FROM=Hondius Watch <updates@hondius-watch.com>
+# BROADCAST_ADMIN_TOKEN=long_random_string_here
+# ─────────────────────────────────────────
 #
 # What it does:
-#   1. Installs Docker (if absent)
-#   2. Creates the `hondius` user, adds to docker group
-#   3. Clones the repo to /opt/hondius
-#   4. Prompts for Resend API key + admin secret (or reads from env)
-#   5. Writes /opt/hondius/.env
-#   6. Builds and starts the docker compose stack on 127.0.0.1:3002
-#   7. Installs nginx + certbot if absent
-#   8. Drops in the rate-limit zone and the site config
-#   9. Issues SSL via Let's Encrypt for hondius-watch.com + www.
+#   1. Installs Docker (idempotent)
+#   2. Creates `hondius` user, adds to docker group
+#   3. Preserves existing .env if you placed one
+#   4. Clones the repo to /opt/hondius
+#   5. If no .env exists yet — generates one from env vars
+#   6. Builds and starts docker compose on 127.0.0.1:3002
+#   7. Installs nginx + certbot (idempotent)
+#   8. Adds rate-limit zone, drops site config, issues Let's Encrypt cert
 
 set -euo pipefail
 
@@ -35,6 +47,7 @@ APP_DIR="${APP_DIR:-/opt/hondius}"
 APP_USER="${APP_USER:-hondius}"
 APP_PORT="${APP_PORT:-3002}"
 DOMAIN="${DOMAIN:-hondius-watch.com}"
+ENV_FILE="$APP_DIR/.env"
 
 # ── 1. Docker ───────────────────────────────────────────────────────
 if ! command -v docker >/dev/null; then
@@ -56,29 +69,51 @@ if ! id "$APP_USER" >/dev/null 2>&1; then
 fi
 usermod -aG docker "$APP_USER"
 mkdir -p "$APP_DIR"
-chown -R "$APP_USER":"$APP_USER" "$APP_DIR"
 
 # ── 3. Port check ───────────────────────────────────────────────────
 if ss -tlnp 2>/dev/null | grep -q ":$APP_PORT "; then
-  die "Port $APP_PORT is already in use. Pick another and re-run with APP_PORT=NNNN bash bootstrap.sh"
+  die "Port $APP_PORT is already in use. Re-run with APP_PORT=NNNN bash bootstrap.sh"
 fi
 log "Port $APP_PORT free"
 
-# ── 4. Clone or update repo ─────────────────────────────────────────
+# ── 4. Preserve pre-placed .env (Workflow A) ────────────────────────
+ENV_BACKUP=""
+if [[ -f "$ENV_FILE" && ! -d "$APP_DIR/.git" ]]; then
+  ENV_BACKUP=$(mktemp)
+  cp "$ENV_FILE" "$ENV_BACKUP"
+  log "Found pre-placed .env — preserving"
+fi
+
+# ── 5. Clone or update repo ─────────────────────────────────────────
 if [[ -d "$APP_DIR/.git" ]]; then
   log "Updating existing clone"
   sudo -u "$APP_USER" git -C "$APP_DIR" fetch --all
   sudo -u "$APP_USER" git -C "$APP_DIR" reset --hard origin/main
 else
   log "Cloning $REPO_URL → $APP_DIR"
-  sudo -u "$APP_USER" git clone "$REPO_URL" "$APP_DIR"
+  TMP=$(mktemp -d)
+  git clone "$REPO_URL" "$TMP" >/dev/null
+  # Move repo files into APP_DIR (which may already contain .env)
+  shopt -s dotglob nullglob
+  for item in "$TMP"/*; do
+    cp -r "$item" "$APP_DIR/"
+  done
+  shopt -u dotglob nullglob
+  rm -rf "$TMP"
+  chown -R "$APP_USER":"$APP_USER" "$APP_DIR"
 fi
 
-# ── 5. Prompt for env values ────────────────────────────────────────
-ENV_FILE="$APP_DIR/.env"
+# Restore preserved .env (in case clone overwrote it)
+if [[ -n "$ENV_BACKUP" && -f "$ENV_BACKUP" ]]; then
+  mv "$ENV_BACKUP" "$ENV_FILE"
+  chown "$APP_USER":"$APP_USER" "$ENV_FILE"
+  chmod 600 "$ENV_FILE"
+  log "Restored your pre-placed .env"
+fi
+
+# ── 6. Generate .env if not present (Workflow B fallback) ───────────
 if [[ ! -f "$ENV_FILE" ]]; then
-  log "Setting up .env"
-  : "${RESEND_API_KEY:?Set RESEND_API_KEY env var before running, or paste it now:}"
+  log "No .env present — generating from env vars / prompts"
   if [[ -z "${RESEND_API_KEY:-}" ]]; then
     read -rp "Resend API key (re_...): " RESEND_API_KEY
   fi
@@ -91,54 +126,52 @@ BROADCAST_ADMIN_TOKEN=${ADMIN_TOKEN}
 EOF
   chown "$APP_USER":"$APP_USER" "$ENV_FILE"
   chmod 600 "$ENV_FILE"
-  log "Generated BROADCAST_ADMIN_TOKEN — saved in $ENV_FILE (mode 600)"
+  log "BROADCAST_ADMIN_TOKEN saved in $ENV_FILE:"
   echo "  $ADMIN_TOKEN"
-  echo "  ⚠ Save this somewhere safe — you'll need it for broadcasts."
+  echo "  ⚠ Save this somewhere safe — needed for broadcasts."
 else
-  log ".env already exists, skipping"
+  log "Using $ENV_FILE (mode 600)"
+  chmod 600 "$ENV_FILE"
 fi
 
-# ── 6. Build + start ────────────────────────────────────────────────
+# Sanity check required vars
+for v in NEXT_PUBLIC_SITE_URL RESEND_API_KEY EMAIL_FROM BROADCAST_ADMIN_TOKEN; do
+  if ! grep -q "^${v}=" "$ENV_FILE"; then
+    warn "$v not found in $ENV_FILE — app may not work correctly"
+  fi
+done
+
+# ── 7. Build + start ────────────────────────────────────────────────
 log "Building and starting docker compose"
 cd "$APP_DIR"
 sudo -u "$APP_USER" docker compose up -d --build
 
 log "Waiting for healthcheck"
 for i in {1..30}; do
-  if curl -fsS http://127.0.0.1:$APP_PORT/api/health >/dev/null 2>&1; then
+  if curl -fsS "http://127.0.0.1:$APP_PORT/api/health" >/dev/null 2>&1; then
     log "App is healthy at http://127.0.0.1:$APP_PORT"
     break
   fi
   sleep 2
-  [[ $i -eq 30 ]] && die "App did not become healthy in 60s. Check: docker compose logs"
+  [[ $i -eq 30 ]] && die "App did not become healthy in 60s. Check: cd $APP_DIR && docker compose logs"
 done
 
-# ── 7. Install nginx + certbot ──────────────────────────────────────
+# ── 8. Install nginx + certbot ──────────────────────────────────────
 if ! command -v nginx >/dev/null; then
   log "Installing nginx + certbot"
   apt-get update -y
   apt-get install -y nginx certbot python3-certbot-nginx
 fi
 
-# ── 8. nginx rate-limit zone (idempotent) ───────────────────────────
+# ── 9. nginx rate-limit zone (idempotent) ───────────────────────────
 if ! grep -q "subscribe_zone" /etc/nginx/nginx.conf; then
   log "Adding rate-limit zone to /etc/nginx/nginx.conf"
   sed -i '/^http {/a\    limit_req_zone $binary_remote_addr zone=subscribe_zone:10m rate=5r/m;' /etc/nginx/nginx.conf
 fi
 
-# Site config
-cp "$APP_DIR/deploy/nginx-hondius.conf" /etc/nginx/sites-available/hondius
-ln -sf /etc/nginx/sites-available/hondius /etc/nginx/sites-enabled/hondius
-
-# Disable default site (only if it exists and would conflict)
-if [[ -e /etc/nginx/sites-enabled/default ]]; then
-  rm -f /etc/nginx/sites-enabled/default
-  log "Disabled default nginx site"
-fi
-
-# Pre-SSL: replace the SSL block with a temporary HTTP-only one for first certbot run
-TEMP_NGINX=$(mktemp)
-cat >"$TEMP_NGINX" <<EOF
+# ── 10. Pre-SSL HTTP-only site (certbot will rewrite to HTTPS) ─────
+mkdir -p /var/www/certbot
+cat >/etc/nginx/sites-available/hondius <<EOF
 server {
     listen 80;
     listen [::]:80;
@@ -158,35 +191,35 @@ server {
     }
 }
 EOF
-mv "$TEMP_NGINX" /etc/nginx/sites-available/hondius
-mkdir -p /var/www/certbot
+ln -sf /etc/nginx/sites-available/hondius /etc/nginx/sites-enabled/hondius
+
+if [[ -e /etc/nginx/sites-enabled/default ]]; then
+  rm -f /etc/nginx/sites-enabled/default
+  log "Disabled default nginx site"
+fi
 
 nginx -t
 systemctl reload nginx
 log "nginx serving HTTP for $DOMAIN"
 
-# ── 9. Let's Encrypt ────────────────────────────────────────────────
+# ── 11. Let's Encrypt ──────────────────────────────────────────────
 EMAIL="${LETSENCRYPT_EMAIL:-admin@${DOMAIN}}"
 log "Requesting SSL certificate (email: $EMAIL)"
 if certbot --nginx -d "$DOMAIN" -d "www.$DOMAIN" \
         --redirect --email "$EMAIL" --agree-tos --no-eff-email --non-interactive; then
-  log "SSL OK — https://${DOMAIN} should now serve"
+  log "SSL OK — https://${DOMAIN} now serving"
 else
   warn "certbot failed — check that DNS A record points to this server, then re-run:"
   warn "  certbot --nginx -d $DOMAIN -d www.$DOMAIN --redirect --email $EMAIL --agree-tos"
 fi
 
 # ── Done ────────────────────────────────────────────────────────────
+echo
 log "Bootstrap complete"
 echo
 echo "Next steps:"
 echo "  1. Open https://${DOMAIN} in your browser"
-echo "  2. Subscribe modal should appear after 4 seconds — try it"
-echo "  3. To send a broadcast (CLI):"
-echo "       cd $APP_DIR && source .env"
-echo "       BROADCAST_ADMIN_TOKEN=\$BROADCAST_ADMIN_TOKEN SITE_URL=\$NEXT_PUBLIC_SITE_URL \\"
-echo "         node scripts/broadcast.mjs hondius-2026 --dry-run"
-echo
-echo "  4. View logs:    docker compose -f $APP_DIR/docker-compose.yml logs -f"
-echo "  5. Restart app:  cd $APP_DIR && docker compose restart"
-echo "  6. Update app:   cd $APP_DIR && git pull && docker compose up -d --build"
+echo "  2. Subscribe modal appears after 4s — try it"
+echo "  3. Logs:    cd $APP_DIR && docker compose logs -f"
+echo "  4. Restart: cd $APP_DIR && docker compose restart"
+echo "  5. Update:  cd $APP_DIR && git pull && docker compose up -d --build"
