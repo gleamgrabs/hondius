@@ -17,8 +17,10 @@ const SLUG = "hondius-2026";
 
 const FEEDS = [
   {
-    name: "WHO Disease Outbreak News",
-    url: "https://www.who.int/feeds/entity/csr/don/en/rss.xml",
+    // WHO retired the dedicated DON RSS in 2023. The general news feed
+    // includes DON items — Hondius keyword filter will keep only relevant ones.
+    name: "WHO News (English)",
+    url: "https://www.who.int/rss-feeds/news-english.xml",
     publisher: "World Health Organization",
     authority: "high",
   },
@@ -29,16 +31,23 @@ const FEEDS = [
     authority: "high",
   },
   {
+    // Reuters retired public RSS in 2020. To re-enable: subscribe to Reuters
+    // Connect or another paid feed, drop disabled flag, replace url.
     name: "Reuters Health",
     url: "https://www.reutersagency.com/feed/?best-topics=health&post_type=best",
     publisher: "Reuters",
     authority: "medium",
+    disabled: true,
+    disabledReason: "No public RSS as of 2024+; requires paid Reuters Connect feed",
   },
   {
+    // AP closed their public RSS feeds. Available only through licensed partner programs.
     name: "AP World",
     url: "https://feeds.apnews.com/rss/apf-topnews",
     publisher: "AP News",
     authority: "medium",
+    disabled: true,
+    disabledReason: "No public RSS; requires AP partner license",
   },
   {
     name: "Euronews",
@@ -76,6 +85,9 @@ const INGEST_MODE = args.has("--ingest");
 
 const SITE_URL = process.env.SITE_URL ?? "https://hondius-watch.com";
 const INGEST_TOKEN = process.env.INGEST_TOKEN ?? "";
+// Safety switch для первого боевого прогона: всё пишется со status='pending',
+// игнорируя authority. Оператор ревьюит в /admin перед публикацией.
+const FORCE_PENDING = process.env.INGEST_FORCE_PENDING === "1";
 
 if (INGEST_MODE && !INGEST_TOKEN) {
   console.error("INGEST_TOKEN env required for --ingest mode");
@@ -84,6 +96,10 @@ if (INGEST_MODE && !INGEST_TOKEN) {
 if (!DRY_RUN && !INGEST_MODE) {
   console.error("Specify --dry-run OR --ingest");
   process.exit(1);
+}
+
+if (FORCE_PENDING) {
+  console.log("⚠ INGEST_FORCE_PENDING=1 — все items получат status='pending' независимо от authority\n");
 }
 
 // ─── XML helpers (no deps) ───────────────────────────────────────────
@@ -154,6 +170,9 @@ function countMatches(text, kwList) {
 }
 
 function publishStatusForFeed(feed, text) {
+  // Safety override — все items в pending, оператор разбирает.
+  if (FORCE_PENDING) return "pending";
+
   // high authority → live сразу
   if (feed.authority === "high") return "live";
   // medium: live только если ≥2 keyword из Hondius-привязки совпало
@@ -211,6 +230,12 @@ async function fetchFeed(feed) {
 async function main() {
   const all = [];
   for (const feed of FEEDS) {
+    if (feed.disabled) {
+      console.log(
+        `▸ ${feed.name} [${feed.authority}]: DISABLED (${feed.disabledReason ?? "no reason"})`
+      );
+      continue;
+    }
     const items = await fetchFeed(feed);
     console.log(
       `▸ ${feed.name} [${feed.authority}]: ${items.length} Hondius-relevant items`

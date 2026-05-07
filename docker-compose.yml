@@ -19,6 +19,7 @@ services:
       BROADCAST_ADMIN_TOKEN: ${BROADCAST_ADMIN_TOKEN}
       INGEST_TOKEN: ${INGEST_TOKEN}
       ADMIN_TOKEN: ${ADMIN_TOKEN}
+      NEXT_PUBLIC_PLAUSIBLE_DOMAIN: ${NEXT_PUBLIC_PLAUSIBLE_DOMAIN:-}
     volumes:
       - hondius_data:/app/data
     networks:

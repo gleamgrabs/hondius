@@ -132,8 +132,93 @@ Server-side gated by `ADMIN_TOKEN` (defaults to `BROADCAST_ADMIN_TOKEN` if `ADMI
 | `ADMIN_TOKEN` | Token for `/admin?token=…` and `/api/admin/*` |
 | `CLOUDFLARE_TUNNEL_TOKEN` | Tunnel token (set on server only) |
 | `DATABASE_PATH` | SQLite path (default `/app/data/subscribers.db` in container) |
+| `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` | Optional. If set, injects Plausible analytics script for that domain. Unset = no analytics |
+| `INGEST_FORCE_PENDING` | Used only by `scripts/refresh-news.mjs`. If `1`, every parsed item is forced to `pending` regardless of authority — safety switch for shake-down or first-time runs |
 
 Each `*_TOKEN` should be `openssl rand -hex 32`.
+
+---
+
+## Health & monitoring
+
+`/api/health` returns extended status:
+
+```json
+{
+  "ok": true,
+  "ts": 1778181734739,
+  "checks": {
+    "db": "ok",
+    "live_events_count": 12,
+    "live_cases_count": 5,
+    "subscribers_confirmed": 42,
+    "last_ingest_at": 1778180000000,
+    "last_broadcast_at": 1778100000000,
+    "ingest_status": "ok"
+  }
+}
+```
+
+- `db: "error"` → HTTP 503 (DB unavailable)
+- `ingest_status: "stale"` → no ingest in last 4 hours (cron broken)
+- `ingest_status: "never"` → no live data yet (fresh deploy)
+
+Recommended UptimeRobot setup (5min interval, free tier):
+
+| Monitor | URL | Keyword |
+|---|---|---|
+| Site up | `https://hondius-watch.com/api/health` | `"ok":true` |
+| Ingest fresh | `https://hondius-watch.com/api/health` | `"ingest_status":"ok"` |
+| Page rendered | `https://hondius-watch.com/` | `Hondius Watch` |
+
+The first catches DB failures (503). The second catches silent cron failures. The third catches `/api/health` working but the page render broken.
+
+---
+
+## Backup & restore (SQLite)
+
+`deploy/scripts/backup-sqlite.sh` does an online consistent backup via `better-sqlite3`'s `backup()` (no DB lock), copies the file out of the container, gzips it, rotates 14 days.
+
+Setup (one-time, on server):
+```bash
+chmod +x /opt/hondius/deploy/scripts/backup-sqlite.sh
+# Run manually first to verify
+/opt/hondius/deploy/scripts/backup-sqlite.sh
+ls -lh /opt/hondius/backups/
+
+# Then schedule via cron
+crontab -e -u root
+# Add:
+# 0 3 * * * /opt/hondius/deploy/scripts/backup-sqlite.sh >> /var/log/hondius-backup.log 2>&1
+```
+
+### Restore from backup
+
+```bash
+ssh root@62.238.9.117
+cd /opt/hondius
+
+# Pick a backup
+ls -lh backups/
+
+# Stop the app (cloudflared stays up)
+sudo -u hondius docker compose stop hondius-tracker
+
+# Decompress to a temp file
+gunzip -c backups/subscribers-YYYYMMDD-HHMMSS.db.gz > /tmp/restore.db
+
+# Copy into the container's data volume
+CID=$(sudo -u hondius docker compose ps -q hondius-tracker)
+docker cp /tmp/restore.db "$CID:/app/data/subscribers.db.restore"
+sudo -u hondius docker compose start hondius-tracker
+
+# Inside the container, replace the DB and restart
+sudo -u hondius docker compose exec -T hondius-tracker bash -c "mv /app/data/subscribers.db.restore /app/data/subscribers.db"
+sudo -u hondius docker compose restart hondius-tracker
+
+# Verify
+curl -s https://hondius-watch.com/api/health
+```
 
 ---
 

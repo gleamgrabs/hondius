@@ -56,11 +56,13 @@ export default function RootLayout({
       className={`${inter.variable} ${sourceSerif.variable} ${jetbrainsMono.variable}`}
     >
       <head>
-        <script
-          defer
-          data-domain="YOUR_DOMAIN"
-          src="https://plausible.io/js/script.js"
-        />
+        {process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN ? (
+          <script
+            defer
+            data-domain={process.env.NEXT_PUBLIC_PLAUSIBLE_DOMAIN}
+            src="https://plausible.io/js/script.js"
+          />
+        ) : null}
       </head>
       <body className="bg-color-bg text-color-text antialiased">
         {children}

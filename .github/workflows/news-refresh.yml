@@ -2,18 +2,19 @@ name: news-refresh
 
 on:
   schedule:
-    # Every 2 hours
+    # Every 2 hours — production cron uses ingest-live mode.
     - cron: "0 */2 * * *"
   workflow_dispatch:
     inputs:
       mode:
         description: "Run mode"
         required: true
-        default: "ingest"
+        default: "dry-run"
         type: choice
         options:
-          - ingest
-          - dry-run
+          - dry-run        # parser prints candidates, nothing sent
+          - ingest-pending # POST to /api/internal/ingest, all items as 'pending' regardless of authority
+          - ingest-live    # production routing (high → live, medium → live if 2+ kw, low → pending)
 
 permissions:
   contents: read
@@ -28,14 +29,36 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Resolve mode
+        id: mode
+        run: |
+          # Cron triggers default to ingest-live (no inputs object).
+          # Manual workflow_dispatch uses inputs.mode.
+          MODE="${{ github.event.inputs.mode }}"
+          if [ -z "$MODE" ]; then
+            MODE="ingest-live"
+          fi
+          echo "mode=$MODE" >> "$GITHUB_OUTPUT"
+          echo "Run mode: $MODE"
+
       - name: Run RSS parser
         env:
           INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
           SITE_URL: ${{ secrets.SITE_URL || 'https://hondius-watch.com' }}
         run: |
-          MODE="${{ github.event.inputs.mode || 'ingest' }}"
-          if [ "$MODE" = "dry-run" ]; then
-            node scripts/refresh-news.mjs --dry-run
-          else
-            node scripts/refresh-news.mjs --ingest
-          fi
+          MODE="${{ steps.mode.outputs.mode }}"
+          case "$MODE" in
+            dry-run)
+              node scripts/refresh-news.mjs --dry-run
+              ;;
+            ingest-pending)
+              INGEST_FORCE_PENDING=1 node scripts/refresh-news.mjs --ingest
+              ;;
+            ingest-live)
+              node scripts/refresh-news.mjs --ingest
+              ;;
+            *)
+              echo "Unknown mode: $MODE"
+              exit 1
+              ;;
+          esac
