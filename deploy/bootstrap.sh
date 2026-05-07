@@ -49,6 +49,42 @@ APP_PORT="${APP_PORT:-3002}"
 DOMAIN="${DOMAIN:-hondius-watch.com}"
 ENV_FILE="$APP_DIR/.env"
 
+# ── Preflight: show what we will and will NOT touch ─────────────────
+cat <<EOF
+
+▸ Hondius Watch bootstrap — what this script will do
+─────────────────────────────────────────────────────────
+  ✔ Create user:           ${APP_USER}
+  ✔ Create directory:      ${APP_DIR}
+  ✔ Bind app to:           127.0.0.1:${APP_PORT}  (loopback only)
+  ✔ Add nginx site:        /etc/nginx/sites-available/hondius
+  ✔ Enable nginx site:     /etc/nginx/sites-enabled/hondius
+  ✔ Issue SSL cert for:    ${DOMAIN}, www.${DOMAIN}
+
+  ✘ NEVER touched:
+       ~/whale/                        (Polymarket trading bot)
+       /opt/cita-engine/               (cita catcher project)
+       /opt/cita-engine-http/          (Phase 3 R&D)
+       cita user / cita group
+       any existing nginx sites-enabled entries
+
+  Other detected processes / sockets on this server:
+EOF
+ss -tlnp 2>/dev/null | awk 'NR>1 {print "       " $0}' | head -10 || true
+echo
+echo "  Existing /opt projects:"
+ls -d /opt/*/ 2>/dev/null | sed 's/^/       /' || true
+echo
+echo "  Existing nginx sites enabled (will NOT be modified):"
+ls /etc/nginx/sites-enabled/ 2>/dev/null | sed 's/^/       /' || echo "       (nginx not yet installed)"
+echo
+
+if [[ "${SKIP_CONFIRM:-0}" != "1" ]]; then
+  read -rp "Proceed? [y/N] " ans
+  [[ "$ans" =~ ^[Yy]$ ]] || die "Aborted"
+fi
+echo
+
 # ── 1. Docker ───────────────────────────────────────────────────────
 if ! command -v docker >/dev/null; then
   log "Installing Docker"
@@ -193,10 +229,9 @@ server {
 EOF
 ln -sf /etc/nginx/sites-available/hondius /etc/nginx/sites-enabled/hondius
 
-if [[ -e /etc/nginx/sites-enabled/default ]]; then
-  rm -f /etc/nginx/sites-enabled/default
-  log "Disabled default nginx site"
-fi
+# ── Co-existence check: list other sites for visibility (don't touch) ─
+log "Existing nginx sites — none modified except 'hondius':"
+ls -1 /etc/nginx/sites-enabled/ 2>/dev/null | sed 's/^/    /' || true
 
 nginx -t
 systemctl reload nginx
