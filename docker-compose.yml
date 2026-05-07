@@ -4,9 +4,10 @@ services:
     build: .
     image: hondius-tracker:latest
     restart: unless-stopped
-    # Bind only to localhost on the host — nginx proxies in front
-    ports:
-      - "127.0.0.1:3002:3000"
+    # NOT exposed on host — only reachable from cloudflared sidecar via the
+    # internal docker network. Zero conflict with whale_nginx on host 80/443.
+    expose:
+      - "3000"
     environment:
       NODE_ENV: production
       PORT: 3000
@@ -18,12 +19,31 @@ services:
       BROADCAST_ADMIN_TOKEN: ${BROADCAST_ADMIN_TOKEN}
     volumes:
       - hondius_data:/app/data
+    networks:
+      - hondius
     healthcheck:
       test: ["CMD", "node", "-e", "require('http').get('http://127.0.0.1:3000/api/health', r => process.exit(r.statusCode===200?0:1)).on('error', () => process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
       start_period: 15s
+
+  cloudflared:
+    container_name: hondius-cloudflared
+    image: cloudflare/cloudflared:latest
+    restart: unless-stopped
+    command: tunnel --no-autoupdate run --token ${CLOUDFLARE_TUNNEL_TOKEN}
+    depends_on:
+      - hondius-tracker
+    networks:
+      - hondius
+    # No published ports — cloudflared establishes outbound connections to
+    # Cloudflare edge, no inbound port needed on this server.
+
+networks:
+  hondius:
+    name: hondius
+    driver: bridge
 
 volumes:
   hondius_data:
