@@ -21,8 +21,9 @@ export const metadata: Metadata = {
     "Live tactical readout: hantavirus outbreak aboard MV Hondius. Cases, deaths, ship route, contact-tracing.",
 };
 
-// ISR: страница ре-генерируется не чаще раза в 60 секунд после INSERT в SQLite.
-export const revalidate = 60;
+// Force-dynamic: страница re-render на каждый запрос (читает merged data из SQLite).
+// Cloudflare CDN кеширует 60s — см. headers в next.config.mjs.
+export const dynamic = "force-dynamic";
 
 export default function HomePage() {
   const allOutbreaks = getAllOutbreaks();

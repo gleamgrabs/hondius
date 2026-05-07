@@ -13,7 +13,7 @@ export function generateStaticParams() {
   return getAllOutbreakSlugs().map((slug) => ({ slug }));
 }
 
-export const revalidate = 60;
+export const dynamic = "force-dynamic";
 
 export default function CasesPage({ params }: Props) {
   const data = getOutbreakBySlug(params.slug);
