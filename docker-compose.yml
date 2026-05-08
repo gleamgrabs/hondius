@@ -20,6 +20,9 @@ services:
       INGEST_TOKEN: ${INGEST_TOKEN}
       ADMIN_TOKEN: ${ADMIN_TOKEN}
       NEXT_PUBLIC_PLAUSIBLE_DOMAIN: ${NEXT_PUBLIC_PLAUSIBLE_DOMAIN:-}
+      # MV_HONDIUS_MMSI also needed here, чтобы /api/outbreaks/{slug}/ship-position
+      # знал какой MMSI запрашивать из ship_positions.
+      MV_HONDIUS_MMSI: ${MV_HONDIUS_MMSI:-}
     volumes:
       - hondius_data:/app/data
     networks:
