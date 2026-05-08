@@ -134,6 +134,8 @@ Server-side gated by `ADMIN_TOKEN` (defaults to `BROADCAST_ADMIN_TOKEN` if `ADMI
 | `DATABASE_PATH` | SQLite path (default `/app/data/subscribers.db` in container) |
 | `NEXT_PUBLIC_PLAUSIBLE_DOMAIN` | Optional. If set, injects Plausible analytics script for that domain. Unset = no analytics |
 | `INGEST_FORCE_PENDING` | Used only by `scripts/refresh-news.mjs`. If `1`, every parsed item is forced to `pending` regardless of authority — safety switch for shake-down or first-time runs |
+| `AIS_API_KEY` | Optional. AISStream.io key for live ship position. Sign up free at https://aisstream.io |
+| `MV_HONDIUS_MMSI` | Optional. 9-digit MMSI of MV Hondius (find on MarineTraffic). Required if `AIS_API_KEY` set |
 
 Each `*_TOKEN` should be `openssl rand -hex 32`.
 
@@ -191,6 +193,38 @@ crontab -e -u root
 # Add:
 # 0 3 * * * /opt/hondius/deploy/scripts/backup-sqlite.sh >> /var/log/hondius-backup.log 2>&1
 ```
+
+---
+
+## Live ship position via AIS (optional)
+
+Out of the box, the map shows an interpolated ship icon animating along the planned upcoming route. To show **actual MV Hondius position** from AIS broadcasts:
+
+1. Sign up free at [aisstream.io](https://aisstream.io) → API Keys → Create
+2. Find MV Hondius MMSI on [marinetraffic.com](https://www.marinetraffic.com) (search "MV Hondius") — 9-digit number
+3. Add to `/opt/hondius/.env`:
+   ```env
+   AIS_API_KEY=your_aisstream_key
+   MV_HONDIUS_MMSI=246351000
+   ```
+4. Restart with the AIS profile enabled:
+   ```bash
+   cd /opt/hondius
+   sudo -u hondius docker compose --profile ais up -d --build
+   ```
+
+This adds a third container `hondius-ais-poll` that holds a WebSocket to AISStream.io and writes positions into the same SQLite. The map polls `/api/outbreaks/hondius-2026/ship-position` every 60s and replaces the animated ship with a static marker at the real position. If the last AIS update is older than 6 hours (e.g. ship offshore in poor coverage area), map falls back to the animation.
+
+**Coverage caveat:** AISStream.io aggregates terrestrial AIS receivers around the world. Coverage is excellent near coasts and major shipping lanes; sparse mid-ocean unless ship is satellite-AIS enabled. As MV Hondius approaches Tenerife, signal will be reliable.
+
+To turn off:
+```bash
+sudo -u hondius docker compose stop ais-poll
+sudo -u hondius docker compose rm -f ais-poll
+```
+The animated fallback continues to work.
+
+---
 
 ### Restore from backup
 

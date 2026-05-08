@@ -45,6 +45,27 @@ services:
     # No published ports — cloudflared establishes outbound connections to
     # Cloudflare edge, no inbound port needed on this server.
 
+  ais-poll:
+    container_name: hondius-ais-poll
+    build:
+      context: .
+      dockerfile: Dockerfile.ais
+    image: hondius-ais-poll:latest
+    restart: unless-stopped
+    profiles:
+      # Сервис стартует ТОЛЬКО если запущен с профилем `ais`.
+      # `docker compose --profile ais up -d` запустит этот сервис вместе с остальными.
+      # Без профиля — сервис не создаётся → safety, пока оператор не получил AIS_API_KEY.
+      - ais
+    environment:
+      AIS_API_KEY: ${AIS_API_KEY:-}
+      MV_HONDIUS_MMSI: ${MV_HONDIUS_MMSI:-}
+      DATABASE_PATH: /app/data/subscribers.db
+    volumes:
+      - hondius_data:/app/data
+    networks:
+      - hondius
+
 networks:
   hondius:
     name: hondius

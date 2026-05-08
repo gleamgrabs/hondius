@@ -98,6 +98,22 @@ export function getDb(): Database.Database {
       last_sent_at INTEGER NOT NULL,
       pending_event_ids TEXT NOT NULL DEFAULT '[]'
     );
+
+    -- Положения судов через AIS (AISStream.io или другой источник).
+    -- Для каждого MMSI храним последнее принятое положение.
+    -- История не сохраняется — только latest по MMSI (UPSERT).
+    CREATE TABLE IF NOT EXISTS ship_positions (
+      mmsi TEXT PRIMARY KEY,
+      ship_name TEXT,
+      lat REAL NOT NULL,
+      lng REAL NOT NULL,
+      speed_knots REAL,
+      course_deg REAL,
+      heading_deg REAL,
+      timestamp_received INTEGER NOT NULL,
+      source TEXT NOT NULL DEFAULT 'aisstream',
+      raw_payload TEXT
+    );
   `);
 
   // Идемпотентная миграция: добавить sent_event_ids в broadcasts если её нет.
@@ -369,6 +385,56 @@ export function appendPendingEvent(slug: string, eventId: string): string[] {
   if (!existing.includes(eventId)) existing.push(eventId);
   updateBroadcastState(slug, state?.last_sent_at ?? 0, existing);
   return existing;
+}
+
+// ─── Ship positions ──────────────────────────────────────────────────
+export interface ShipPositionRow {
+  mmsi: string;
+  ship_name: string | null;
+  lat: number;
+  lng: number;
+  speed_knots: number | null;
+  course_deg: number | null;
+  heading_deg: number | null;
+  timestamp_received: number;
+  source: string;
+  raw_payload: string | null;
+}
+
+export function getShipPosition(mmsi: string): ShipPositionRow | undefined {
+  const db = getDb();
+  return db
+    .prepare("SELECT * FROM ship_positions WHERE mmsi = ?")
+    .get(mmsi) as ShipPositionRow | undefined;
+}
+
+export function upsertShipPosition(row: Partial<ShipPositionRow> & { mmsi: string; lat: number; lng: number; timestamp_received: number }): void {
+  const db = getDb();
+  db.prepare(
+    `INSERT INTO ship_positions (mmsi, ship_name, lat, lng, speed_knots, course_deg, heading_deg, timestamp_received, source, raw_payload)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(mmsi) DO UPDATE SET
+       ship_name = COALESCE(excluded.ship_name, ship_name),
+       lat = excluded.lat,
+       lng = excluded.lng,
+       speed_knots = excluded.speed_knots,
+       course_deg = excluded.course_deg,
+       heading_deg = excluded.heading_deg,
+       timestamp_received = excluded.timestamp_received,
+       source = excluded.source,
+       raw_payload = excluded.raw_payload`
+  ).run(
+    row.mmsi,
+    row.ship_name ?? null,
+    row.lat,
+    row.lng,
+    row.speed_knots ?? null,
+    row.course_deg ?? null,
+    row.heading_deg ?? null,
+    row.timestamp_received,
+    row.source ?? "aisstream",
+    row.raw_payload ?? null
+  );
 }
 
 // ─── Sent-event tracking ─────────────────────────────────────────────

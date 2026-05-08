@@ -140,12 +140,78 @@ function pointAlongPath(
   return [a[0] + (b[0] - a[0]) * local, a[1] + (b[1] - a[1]) * local];
 }
 
-function AnimatedShip() {
+interface LiveShipPosition {
+  lat: number;
+  lng: number;
+  speedKnots: number | null;
+  courseDeg: number | null;
+  ageMinutes: number;
+  stale: boolean;
+  source: string;
+}
+
+/**
+ * Подгружает реальное AIS-положение судна с /api/outbreaks/{slug}/ship-position
+ * раз в 60 сек (только когда вкладка видна). Возвращает null если:
+ *  - slug не задан
+ *  - AIS не сконфигурирован (нет MV_HONDIUS_MMSI на сервере)
+ *  - данные старше 6 часов (stale)
+ *  - нет данных вообще
+ * В этих случаях карта откатывается к interpolated animation.
+ */
+function useLiveShipPosition(slug?: string): LiveShipPosition | null {
+  const [pos, setPos] = useState<LiveShipPosition | null>(null);
+
+  useEffect(() => {
+    if (!slug || typeof window === "undefined") return;
+
+    let cancelled = false;
+    const url = `/api/outbreaks/${encodeURIComponent(slug)}/ship-position`;
+
+    async function fetchOnce() {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) return;
+        const json = (await res.json()) as {
+          ok: boolean;
+          position?: LiveShipPosition | null;
+        };
+        if (cancelled) return;
+        if (json.ok && json.position && !json.position.stale) {
+          setPos(json.position);
+        } else {
+          setPos(null);
+        }
+      } catch {
+        /* network error — silent */
+      }
+    }
+
+    fetchOnce();
+    const id = window.setInterval(fetchOnce, 60_000);
+    const onVis = () => {
+      if (document.visibilityState === "visible") fetchOnce();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => {
+      cancelled = true;
+      window.clearInterval(id);
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [slug]);
+
+  return pos;
+}
+
+function AnimatedShip({ slug }: { slug?: string }) {
   // Ship sails along the upcoming route (Cabo Verde → Canaries → Tenerife) repeatedly
   const path = upcomingRouteCoords;
   const [pos, setPos] = useState<[number, number]>(path[0]);
+  const live = useLiveShipPosition(slug);
 
   useEffect(() => {
+    if (live) return; // Live AIS overrides — animation idle
     const reduced =
       typeof window !== "undefined" &&
       window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
@@ -155,19 +221,56 @@ function AnimatedShip() {
     }
 
     const start = Date.now();
-    const period = 18_000; // 18s per cycle
+    const period = 18_000;
     let raf: number;
     const tick = () => {
       const t = ((Date.now() - start) % period) / period;
-      // ease in-out: ship slows down at endpoints
       const eased = 0.5 - 0.5 * Math.cos(Math.PI * t);
       setPos(pointAlongPath(path, eased));
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [path]);
+  }, [path, live]);
 
+  // Real AIS — static marker at actual position with popup metadata
+  if (live) {
+    return (
+      <Marker
+        position={[live.lat, live.lng]}
+        icon={SHIP_ICON}
+        interactive={true}
+      >
+        <Tooltip direction="top" offset={[0, -14]}>
+          MV Hondius (live AIS)
+        </Tooltip>
+        <Popup>
+          <div style={{ fontSize: 11, lineHeight: 1.4 }}>
+            <strong style={{ color: "#ff3b30" }}>▲ MV Hondius</strong>
+            <br />
+            <span style={{ color: "#8a93a0" }}>Live AIS position</span>
+            <br />
+            {live.speedKnots != null && (
+              <>
+                speed: {live.speedKnots.toFixed(1)} knots
+                <br />
+              </>
+            )}
+            {live.courseDeg != null && (
+              <>
+                course: {Math.round(live.courseDeg)}°<br />
+              </>
+            )}
+            <span style={{ color: "#8a93a0" }}>
+              age: {live.ageMinutes} min · src: {live.source}
+            </span>
+          </div>
+        </Popup>
+      </Marker>
+    );
+  }
+
+  // Fallback — interpolated animation
   return <Marker position={pos} icon={SHIP_ICON} interactive={false} />;
 }
 
@@ -215,8 +318,8 @@ export default function MapInner({
         }}
       />
 
-      {/* Animated ship */}
-      <AnimatedShip />
+      {/* Ship — live AIS position if available, else interpolated animation */}
+      <AnimatedShip slug={outbreakSlug} />
 
       {/* Route waypoints */}
       {route.map((wp) => {
