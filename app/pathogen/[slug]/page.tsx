@@ -64,18 +64,79 @@ export default function PathogenPage({ params }: Props) {
 
   const outbreaks = getOutbreaksByPathogen(params.slug);
 
-  const schema = {
+  const canonical = `https://hondius-watch.com/pathogen/${params.slug}`;
+  const ogImageUrl = `https://hondius-watch.com/api/og?title=${encodeURIComponent(hantavirusContent.title)}&cases=0&deaths=0&status=resolved`;
+
+  // MedicalCondition с полным набором валидных по schema.org properties.
+  // `infectiousAgent` и `transmissionMethod` (которые были раньше) на
+  // MedicalCondition не существуют — поэтому Google «No items detected».
+  const medicalConditionSchema = {
     "@context": "https://schema.org",
     "@type": "MedicalCondition",
-    name: hantavirusContent.title,
+    name: "Hantavirus infection",
+    alternateName: [
+      "Hantavirus disease",
+      "Orthohantavirus infection",
+      "Hantavirus pulmonary syndrome",
+      "HPS",
+      "Haemorrhagic fever with renal syndrome",
+      "HFRS",
+    ],
     description: hantavirusContent.subtitle,
-    code: {
-      "@type": "MedicalCode",
-      codeValue: "B33.4",
-      codingSystem: "ICD-10",
+    code: [
+      {
+        "@type": "MedicalCode",
+        codeValue: "B33.4",
+        codingSystem: "ICD-10",
+      },
+      {
+        "@type": "MedicalCode",
+        codeValue: "J12.81",
+        codingSystem: "ICD-10",
+      },
+    ],
+    associatedAnatomy: {
+      "@type": "AnatomicalStructure",
+      name: "Lungs and kidneys",
     },
-    infectiousAgent: "Hantavirus (Andes strain)",
-    transmissionMethod: "Aerosol inhalation of rodent excreta; person-to-person (Andes strain only)",
+    signOrSymptom: [
+      { "@type": "MedicalSignOrSymptom", name: "Fever" },
+      { "@type": "MedicalSignOrSymptom", name: "Muscle aches" },
+      { "@type": "MedicalSignOrSymptom", name: "Headache" },
+      { "@type": "MedicalSignOrSymptom", name: "Shortness of breath" },
+      { "@type": "MedicalSignOrSymptom", name: "Pulmonary edema" },
+      { "@type": "MedicalSignOrSymptom", name: "Acute renal failure" },
+    ],
+    primaryPrevention:
+      "Avoiding contact with rodent excreta; using respiratory protection in enclosed spaces with known rodent infestation.",
+    possibleTreatment:
+      "Supportive care including oxygen therapy, fluid management, and mechanical ventilation. Ribavirin has been used investigationally for hantavirus pulmonary syndrome with mixed results.",
+    epidemiology:
+      "Found globally with regional strain variation. Andes hantavirus in South America is the only strain with documented person-to-person transmission. Sin Nombre virus (US Four Corners region) causes the highest fatality rate.",
+    expectedPrognosis:
+      "Case fatality rate varies by strain: Andes hantavirus up to 40%, Sin Nombre virus up to 38%. Survivors of hantavirus pulmonary syndrome typically recover fully within weeks.",
+    url: canonical,
+  };
+
+  // WebPage wrapper для лучшего понимания контекста страницы.
+  const webPageSchema = {
+    "@context": "https://schema.org",
+    "@type": "WebPage",
+    name: "Hantavirus — Pathogen guide",
+    description: hantavirusContent.subtitle,
+    url: canonical,
+    primaryImageOfPage: {
+      "@type": "ImageObject",
+      url: ogImageUrl,
+      width: 1200,
+      height: 630,
+    },
+    isPartOf: {
+      "@type": "WebSite",
+      name: "Hondius Watch",
+      url: "https://hondius-watch.com",
+    },
+    about: { "@id": canonical + "#medicalcondition" },
   };
 
   const paragraphs = hantavirusContent.description
@@ -89,7 +150,16 @@ export default function PathogenPage({ params }: Props) {
       <main>
         <script
           type="application/ld+json"
-          dangerouslySetInnerHTML={{ __html: JSON.stringify(schema) }}
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              ...medicalConditionSchema,
+              "@id": canonical + "#medicalcondition",
+            }),
+          }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(webPageSchema) }}
         />
 
         <div className="max-w-content mx-auto px-4 sm:px-6 py-10">
