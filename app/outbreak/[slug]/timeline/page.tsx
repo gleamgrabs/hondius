@@ -22,6 +22,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     title: `${data.meta.title} — Full timeline`,
     description: `Complete timeline of all events in the ${data.meta.title}, compiled from WHO, Reuters, AP, and official sources.`,
+    alternates: { canonical: `/outbreak/${data.meta.slug}/timeline` },
   };
 }
 

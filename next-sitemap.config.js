@@ -4,11 +4,14 @@ module.exports = {
   generateRobotsTxt: true,
   robotsTxtOptions: {
     policies: [
-      { userAgent: "*", allow: "/" },
-      { userAgent: "*", disallow: "/api/" },
+      {
+        userAgent: "*",
+        allow: "/",
+        disallow: ["/api/", "/admin", "/admin/*"],
+      },
     ],
   },
-  exclude: ["/api/*"],
+  exclude: ["/api/*", "/admin", "/admin/*"],
   changefreq: "daily",
   priority: 0.7,
   additionalPaths: async () => [

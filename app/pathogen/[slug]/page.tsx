@@ -49,6 +49,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
     title: `${hantavirusContent.title} — Pathogen guide`,
     description: hantavirusContent.subtitle,
+    alternates: { canonical: `/pathogen/${params.slug}` },
     openGraph: {
       title: `${hantavirusContent.title} — Pathogen guide`,
       description: hantavirusContent.subtitle,

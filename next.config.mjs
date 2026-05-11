@@ -8,6 +8,20 @@ const nextConfig = {
   images: {
     remotePatterns: [],
   },
+  // www.hondius-watch.com → hondius-watch.com (301)
+  // Это закрывает GSC "Duplicate without user-selected canonical" в случае когда
+  // обе версии возвращают одинаковый контент. Канонические <link rel="canonical">
+  // также проставлены на каждой странице через metadata.alternates.canonical.
+  async redirects() {
+    return [
+      {
+        source: "/:path*",
+        has: [{ type: "host", value: "www.hondius-watch.com" }],
+        destination: "https://hondius-watch.com/:path*",
+        permanent: true,
+      },
+    ];
+  },
   async headers() {
     return [
       {

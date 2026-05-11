@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import Header from "@/components/layout/Header";
@@ -14,6 +15,16 @@ export function generateStaticParams() {
 }
 
 export const dynamic = "force-dynamic";
+
+export async function generateMetadata({ params }: Props): Promise<Metadata> {
+  const data = getOutbreakBySlug(params.slug);
+  if (!data) return {};
+  return {
+    title: `${data.meta.title} — Case list`,
+    description: `All known confirmed, suspected and deceased cases for ${data.meta.title}. Sortable table with source links.`,
+    alternates: { canonical: `/outbreak/${data.meta.slug}/cases` },
+  };
+}
 
 export default function CasesPage({ params }: Props) {
   const data = getOutbreakBySlug(params.slug);

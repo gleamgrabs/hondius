@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
@@ -12,6 +13,11 @@ import {
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+// Не индексируем admin: ни с токеном (служебка), ни без (404).
+export const metadata: Metadata = {
+  robots: { index: false, follow: false, nocache: true },
+};
 
 interface SearchParams {
   searchParams: { token?: string };

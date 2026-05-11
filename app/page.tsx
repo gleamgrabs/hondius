@@ -19,6 +19,7 @@ export const metadata: Metadata = {
   title: "Hondius Watch — Hantavirus outbreak tracker",
   description:
     "Live tactical readout: hantavirus outbreak aboard MV Hondius. Cases, deaths, ship route, contact-tracing.",
+  alternates: { canonical: "/" },
 };
 
 // Force-dynamic: страница re-render на каждый запрос (читает merged data из SQLite).

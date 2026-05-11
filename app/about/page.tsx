@@ -7,6 +7,7 @@ export const metadata: Metadata = {
   title: "About — Outbreak Tracker",
   description:
     "What this project is, how we compile data, and how to report corrections or new outbreaks.",
+  alternates: { canonical: "/about" },
 };
 
 export default function AboutPage() {
