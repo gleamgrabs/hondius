@@ -45,6 +45,9 @@ jobs:
         env:
           INGEST_TOKEN: ${{ secrets.INGEST_TOKEN }}
           SITE_URL: ${{ secrets.SITE_URL || 'https://hondius-watch.com' }}
+          # Optional. If set, LLM (Claude Haiku) extracts case data from each new event
+          # and auto-publishes per-country markers. Without it parser only ingests events.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           MODE="${{ steps.mode.outputs.mode }}"
           case "$MODE" in

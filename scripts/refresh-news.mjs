@@ -12,6 +12,7 @@
 
 import crypto from "node:crypto";
 import { setTimeout as delay } from "node:timers/promises";
+import { extractCases } from "./extract-cases.mjs";
 
 const SLUG = "hondius-2026";
 
@@ -85,6 +86,7 @@ const INGEST_MODE = args.has("--ingest");
 
 const SITE_URL = process.env.SITE_URL ?? "https://hondius-watch.com";
 const INGEST_TOKEN = process.env.INGEST_TOKEN ?? "";
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY ?? "";
 // Safety switch для первого боевого прогона: всё пишется со status='pending',
 // игнорируя authority. Оператор ревьюит в /admin перед публикацией.
 const FORCE_PENDING = process.env.INGEST_FORCE_PENDING === "1";
@@ -301,7 +303,7 @@ async function main() {
     process.exit(0);
   }
 
-  // INGEST mode — POST to /api/internal/ingest
+  // INGEST mode — POST events to /api/internal/ingest
   const url = `${SITE_URL}/api/internal/ingest`;
   console.log(`\n▸ POST ${url}`);
   const res = await fetch(url, {
@@ -316,6 +318,66 @@ async function main() {
   console.log(`  status: ${res.status}`);
   console.log(`  body:   ${text}`);
   if (!res.ok) process.exit(1);
+
+  let ingestResult;
+  try { ingestResult = JSON.parse(text); } catch { ingestResult = { inserted: [] }; }
+  const newlyInsertedIds = new Set(
+    (ingestResult.inserted ?? []).filter((x) => x.type === "event").map((x) => x.id)
+  );
+
+  // ─── LLM case extraction для всех newly-inserted events ─────────────
+  // Дубликаты (skipped) уже обрабатывались — пропускаем чтобы не дублить.
+  if (ANTHROPIC_API_KEY && newlyInsertedIds.size > 0) {
+    console.log(`\n▸ LLM extraction: ${newlyInsertedIds.size} new event(s) → Claude Haiku`);
+    const caseCandidates = [];
+    for (const c of candidates) {
+      if (!newlyInsertedIds.has(c.payload.id)) continue;
+      // Only run extraction on warning/critical (info events usually background)
+      if (c.payload.severity === "info") {
+        console.log(`   skip [info] ${c.payload.title.slice(0, 60)}`);
+        continue;
+      }
+      const extracted = await extractCases(
+        {
+          id: c.payload.id,
+          title: c.payload.title,
+          description: c.payload.description,
+          sourceUrl: c.sourceUrl,
+          sourcePublisher: c.sourcePublisher,
+          date: c.payload.date,
+        },
+        ANTHROPIC_API_KEY
+      );
+      if (extracted.length > 0) {
+        console.log(`   ✓ ${c.payload.title.slice(0, 60)} → ${extracted.length} case(s)`);
+        for (const e of extracted) {
+          console.log(`      [${e.payload.status}] ${e.payload.country} ×${e.payload.caseCount}`);
+          caseCandidates.push(e);
+        }
+      } else {
+        console.log(`   — ${c.payload.title.slice(0, 60)} → no cases`);
+      }
+      await delay(400); // быть вежливыми к Anthropic API
+    }
+
+    if (caseCandidates.length > 0) {
+      console.log(`\n▸ POST ${caseCandidates.length} extracted case(s) to /api/internal/ingest`);
+      const caseRes = await fetch(url, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${INGEST_TOKEN}`,
+        },
+        body: JSON.stringify({ candidates: caseCandidates }),
+      });
+      console.log(`  status: ${caseRes.status}`);
+      console.log(`  body:   ${await caseRes.text()}`);
+    } else {
+      console.log("▸ LLM found no extractable cases in this batch");
+    }
+  } else if (!ANTHROPIC_API_KEY) {
+    console.log("\n▸ ANTHROPIC_API_KEY not set — skipping LLM case extraction");
+  }
 
   // After ingest — try to trigger debounced broadcast
   const triggerUrl = `${SITE_URL}/api/broadcast/maybe-trigger`;

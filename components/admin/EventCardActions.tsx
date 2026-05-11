@@ -34,12 +34,15 @@ export default function EventCardActions({
           token={token}
           currentStatus={currentStatus}
         />
+      </div>
+      <div className="text-right mt-1">
         <button
           type="button"
           onClick={() => setShowForm((v) => !v)}
-          className="font-data text-xs uppercase tracking-wider px-3 py-1 border border-color-warning text-color-warning hover:bg-color-warning hover:text-color-bg transition-colors"
+          className="font-data text-[10px] uppercase tracking-wider text-color-text-subtle hover:text-color-warning transition-colors"
+          title="Manual override — only use if LLM auto-extraction missed a case from this article"
         >
-          {showForm ? "Cancel" : "Add case"}
+          {showForm ? "× cancel manual" : "+ manual case (override)"}
         </button>
       </div>
       {showForm && (
