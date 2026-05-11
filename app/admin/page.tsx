@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
-import EventActionButtons from "@/components/admin/EventActionButtons";
+import EventCardActions from "@/components/admin/EventCardActions";
 import ForceBroadcastButton from "@/components/admin/ForceBroadcastButton";
 import {
   getDb,
@@ -209,12 +209,15 @@ function EventCard({
             </span>
           </p>
         </div>
-        <div className="flex-shrink-0">
-          <EventActionButtons
+        <div className="flex-shrink-0 min-w-[260px]">
+          <EventCardActions
             id={event.id}
+            eventDate={event.date}
+            eventDescription={event.description}
+            eventSourceUrl={event.source_url}
+            currentStatus={event.status}
             outbreakSlug={slug}
             token={token}
-            currentStatus={event.status}
           />
         </div>
       </div>
