@@ -46,14 +46,16 @@ Two major disease syndromes are associated with hantavirus infection in humans: 
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   if (!PATHOGEN_SLUGS.includes(params.slug)) return {};
+  const { monthYear } = await import("@/lib/seo");
+  const my = monthYear();
+  const title = `Hantavirus — Strains, Transmission, Symptoms (Updated ${my})`;
+  const description =
+    "Reference guide on hantaviruses: Andes strain, transmission routes, incubation, symptoms, treatment, prognosis. Linked to current tracked outbreaks.";
   return {
-    title: `${hantavirusContent.title} — Pathogen guide`,
-    description: hantavirusContent.subtitle,
+    title,
+    description,
     alternates: { canonical: `/pathogen/${params.slug}` },
-    openGraph: {
-      title: `${hantavirusContent.title} — Pathogen guide`,
-      description: hantavirusContent.subtitle,
-    },
+    openGraph: { title, description },
   };
 }
 

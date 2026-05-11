@@ -12,6 +12,8 @@ interface KeyFactsStripProps {
   countries: number;
   disembarked: number;
   firstSymptomDate: string;
+  /** Если outbreak уже contained/resolved — приглушаем pulse-dots. */
+  outbreakStatus?: "active" | "contained" | "resolved";
 }
 
 export default function KeyFactsStrip({
@@ -20,6 +22,7 @@ export default function KeyFactsStrip({
   countries,
   disembarked,
   firstSymptomDate,
+  outbreakStatus = "active",
 }: KeyFactsStripProps) {
   const days = daysSince(firstSymptomDate);
 
@@ -47,7 +50,7 @@ export default function KeyFactsStrip({
           }`}
         >
           <div className="data-label mb-1.5 flex items-center gap-1.5">
-            {fact.accent && (
+            {fact.accent && outbreakStatus === "active" && (
               <span className="live-dot" aria-hidden style={{ width: 6, height: 6 }} />
             )}
             {fact.label}

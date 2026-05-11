@@ -16,10 +16,15 @@ import {
 import { formatDate } from "@/lib/seo";
 
 export const metadata: Metadata = {
-  title: "Hondius Watch — Hantavirus outbreak tracker",
+  title: "MV Hondius Hantavirus Outbreak Tracker — Cases, Timeline, Sources",
   description:
-    "Live tactical readout: hantavirus outbreak aboard MV Hondius. Cases, deaths, ship route, contact-tracing.",
+    "Detailed tracking of the MV Hondius hantavirus outbreak: confirmed cases by country, full event timeline, ship route, and verified sources. Updated continuously from WHO, ECDC, Reuters, AP.",
   alternates: { canonical: "/" },
+  openGraph: {
+    title: "MV Hondius Hantavirus Outbreak Tracker",
+    description:
+      "Confirmed cases by country, complete timeline, ship route, primary sources.",
+  },
 };
 
 // Force-dynamic: страница re-render на каждый запрос (читает merged data из SQLite).
@@ -144,6 +149,7 @@ export default function HomePage() {
                   featuredData.meta.stats.firstSymptomDate ??
                   featuredData.meta.startDate
                 }
+                outbreakStatus={featuredData.meta.status}
               />
 
               {/* 3. Map */}

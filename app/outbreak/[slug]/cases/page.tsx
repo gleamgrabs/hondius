@@ -5,6 +5,7 @@ import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import CasesTable from "@/components/cases/CasesTable";
 import { getOutbreakBySlug, getAllOutbreakSlugs } from "@/lib/outbreaks";
+import { formatDateTimeUtc } from "@/lib/seo";
 
 interface Props {
   params: { slug: string };
@@ -20,9 +21,13 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const data = getOutbreakBySlug(params.slug);
   if (!data) return {};
   return {
-    title: `${data.meta.title} — Case list`,
-    description: `All known confirmed, suspected and deceased cases for ${data.meta.title}. Sortable table with source links.`,
+    title: `MV Hondius Hantavirus — Confirmed Cases by Country`,
+    description: `Detailed case-by-case data for the MV Hondius hantavirus outbreak: country, status, confirmation date, source. ${data.meta.stats.cases} confirmed cases across ${data.meta.stats.countries} countries.`,
     alternates: { canonical: `/outbreak/${data.meta.slug}/cases` },
+    openGraph: {
+      type: "article",
+      modifiedTime: data.meta.lastUpdated,
+    },
   };
 }
 
@@ -56,6 +61,22 @@ export default function CasesPage({ params }: Props) {
             <p className="text-color-text-muted mt-2">
               {meta.title} · {cases.length} records
             </p>
+            <div className="hud-frame px-4 py-2 mt-4 inline-flex items-center gap-3 flex-wrap">
+              <span className="hud-corner-tl" />
+              <span className="hud-corner-br" />
+              <span className="font-data text-[10px] uppercase tracking-widest text-color-text-muted">
+                Last updated
+              </span>
+              <time
+                dateTime={meta.lastUpdated}
+                className="font-data text-sm text-color-text tabular-nums"
+              >
+                {formatDateTimeUtc(meta.lastUpdated)}
+              </time>
+              <span className="font-data text-[10px] uppercase tracking-widest text-color-text-subtle">
+                · Auto-monitored from WHO · ECDC · Reuters · AP
+              </span>
+            </div>
           </header>
 
           <hr className="divider mb-8" />

@@ -5,6 +5,7 @@ import Header from "@/components/layout/Header";
 import Footer from "@/components/layout/Footer";
 import Timeline from "@/components/timeline/Timeline";
 import { getOutbreakBySlug, getAllOutbreakSlugs } from "@/lib/outbreaks";
+import { formatDateTimeUtc } from "@/lib/seo";
 
 interface Props {
   params: { slug: string };
@@ -19,10 +20,18 @@ export const dynamic = "force-dynamic";
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const data = getOutbreakBySlug(params.slug);
   if (!data) return {};
+  const { monthYear } = await import("@/lib/seo");
+  const my = monthYear();
+  const n = data.events.length;
   return {
-    title: `${data.meta.title} — Full timeline`,
-    description: `Complete timeline of all events in the ${data.meta.title}, compiled from WHO, Reuters, AP, and official sources.`,
+    title: `MV Hondius Hantavirus Outbreak — Complete Event Timeline (${my})`,
+    description: `Day-by-day timeline of the MV Hondius hantavirus outbreak from April 2026: first symptoms, port denials, deaths, evacuation. ${n} documented events with source links.`,
     alternates: { canonical: `/outbreak/${data.meta.slug}/timeline` },
+    openGraph: {
+      type: "article",
+      publishedTime: data.meta.startDate,
+      modifiedTime: data.meta.lastUpdated,
+    },
   };
 }
 
@@ -56,6 +65,22 @@ export default function TimelinePage({ params }: Props) {
             <p className="text-color-text-muted mt-2">
               {meta.title} · {events.length} events
             </p>
+            <div className="hud-frame px-4 py-2 mt-4 inline-flex items-center gap-3 flex-wrap">
+              <span className="hud-corner-tl" />
+              <span className="hud-corner-br" />
+              <span className="font-data text-[10px] uppercase tracking-widest text-color-text-muted">
+                Last updated
+              </span>
+              <time
+                dateTime={meta.lastUpdated}
+                className="font-data text-sm text-color-text tabular-nums"
+              >
+                {formatDateTimeUtc(meta.lastUpdated)}
+              </time>
+              <span className="font-data text-[10px] uppercase tracking-widest text-color-text-subtle">
+                · Auto-monitored from WHO · ECDC · Reuters · AP
+              </span>
+            </div>
           </header>
 
           <hr className="divider mb-8" />

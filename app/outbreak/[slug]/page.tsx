@@ -11,8 +11,9 @@ import OutbreakMap from "@/components/map/OutbreakMap";
 import MapTable from "@/components/map/MapTable";
 import Timeline from "@/components/timeline/Timeline";
 import CasesChart from "@/components/chart/CasesChart";
+import OutbreakFAQ from "@/components/outbreak/OutbreakFAQ";
 import { getOutbreakBySlug, getAllOutbreakSlugs } from "@/lib/outbreaks";
-import { formatDate, buildOgUrl } from "@/lib/seo";
+import { formatDate, buildOgUrl, monthYear, formatDateTimeUtc } from "@/lib/seo";
 
 interface Props {
   params: { slug: string };
@@ -28,21 +29,28 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const data = getOutbreakBySlug(params.slug);
   if (!data) return {};
   const { meta } = data;
-  const description = `${meta.stats.cases} confirmed cases, ${meta.stats.deaths} deaths across ${meta.stats.countries} countries. ${meta.summary}`;
+  const my = monthYear();
+  const title = `MV Hondius Hantavirus Outbreak — ${meta.stats.cases} Cases, ${meta.stats.deaths} Deaths (${my})`;
+  const description = `MV Hondius hantavirus outbreak: ${meta.stats.cases} confirmed cases, ${meta.stats.deaths} deaths across ${meta.stats.countries} countries. Full timeline from departure ${formatDate(meta.startDate)} through evacuation. Source-cited data from WHO, ECDC, Reuters.`;
   const ogImageUrl = buildOgUrl({
     cases: meta.stats.cases,
     deaths: meta.stats.deaths,
     title: meta.title,
+    status: meta.status,
   });
   return {
-    title: `${meta.title} — Cases, map and timeline`,
+    title,
     description,
     alternates: { canonical: `/outbreak/${meta.slug}` },
     openGraph: {
-      title: meta.title,
+      title,
       description,
       images: [{ url: ogImageUrl, width: 1200, height: 630 }],
+      type: "article",
+      publishedTime: meta.startDate,
+      modifiedTime: meta.lastUpdated,
     },
+    twitter: { card: "summary_large_image", title, description },
   };
 }
 
@@ -52,6 +60,14 @@ export default function OutbreakPage({ params }: Props) {
 
   const { meta, events, cases, route, sources, disembarked } = data;
 
+  const canonical = `https://hondius-watch.com/outbreak/${meta.slug}`;
+  const ogImg = buildOgUrl({
+    cases: meta.stats.cases,
+    deaths: meta.stats.deaths,
+    title: meta.title,
+    status: meta.status,
+  });
+
   const newsArticleSchema = {
     "@context": "https://schema.org",
     "@type": "NewsArticle",
@@ -59,9 +75,21 @@ export default function OutbreakPage({ params }: Props) {
     description: meta.summary,
     datePublished: meta.startDate,
     dateModified: meta.lastUpdated,
+    mainEntityOfPage: { "@type": "WebPage", "@id": canonical },
+    image: [ogImg],
     author: {
       "@type": "Organization",
-      name: "Outbreak Tracker",
+      name: "Hondius Watch",
+      url: "https://hondius-watch.com",
+    },
+    publisher: {
+      "@type": "Organization",
+      name: "Hondius Watch",
+      url: "https://hondius-watch.com",
+      logo: {
+        "@type": "ImageObject",
+        url: "https://hondius-watch.com/api/og?cases=0&deaths=0&title=Hondius+Watch&logo=1",
+      },
     },
     citation: sources.map((s) => ({
       "@type": "CreativeWork",
@@ -71,6 +99,31 @@ export default function OutbreakPage({ params }: Props) {
     })),
   };
 
+  // MedicalCondition — Andes hantavirus, привязанная к этой вспышке.
+  const medicalConditionSchema = {
+    "@context": "https://schema.org",
+    "@type": "MedicalCondition",
+    name: "Andes orthohantavirus infection",
+    alternateName: [
+      "Hantavirus pulmonary syndrome",
+      "HPS",
+      "Andes hantavirus",
+    ],
+    code: { "@type": "MedicalCode", codeValue: "B33.4", codingSystem: "ICD-10" },
+    associatedAnatomy: { "@type": "AnatomicalStructure", name: "Lungs" },
+    primaryPrevention:
+      "Avoid contact with rodent excreta; for human-to-human Andes strain, isolate symptomatic individuals; PPE for close-contact healthcare workers.",
+    signOrSymptom: [
+      { "@type": "MedicalSignOrSymptom", name: "Fever" },
+      { "@type": "MedicalSignOrSymptom", name: "Myalgia" },
+      { "@type": "MedicalSignOrSymptom", name: "Cough" },
+      { "@type": "MedicalSignOrSymptom", name: "Dyspnea" },
+      { "@type": "MedicalSignOrSymptom", name: "Pulmonary edema" },
+    ],
+    epidemiology:
+      "Endemic to South America (Argentina, Chile). The only known hantavirus strain with documented person-to-person transmission. Historical case fatality rate up to 40%.",
+  };
+
   return (
     <>
       <Header />
@@ -78,6 +131,10 @@ export default function OutbreakPage({ params }: Props) {
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{ __html: JSON.stringify(newsArticleSchema) }}
+        />
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(medicalConditionSchema) }}
         />
 
         <article>
@@ -101,9 +158,15 @@ export default function OutbreakPage({ params }: Props) {
                 {meta.summary}
               </p>
 
+              <p className="font-data text-[10px] text-color-text-subtle uppercase tracking-widest mt-2 leading-relaxed">
+                Also known as: hantavirus outbreak MV Hondius · MV Hondius
+                Hantavirus-Ausbruch · brote de hantavirus MV Hondius · surto
+                de hantavírus MV Hondius
+              </p>
+
               <div className="flex flex-wrap items-center gap-x-6 gap-y-1 mt-4">
                 <span className="text-sm text-color-text-muted">
-                  Compiled from WHO, Reuters, AP
+                  Compiled from WHO, Reuters, AP, ECDC
                 </span>
                 <span className="font-data text-xs text-color-text-subtle uppercase tracking-wider">
                   Published{" "}
@@ -111,11 +174,23 @@ export default function OutbreakPage({ params }: Props) {
                     {formatDate(meta.startDate)}
                   </time>
                 </span>
-                <span className="font-data text-xs text-color-text-subtle uppercase tracking-wider">
-                  Updated{" "}
-                  <time dateTime={meta.lastUpdated}>
-                    {formatDate(meta.lastUpdated)}
-                  </time>
+              </div>
+
+              {/* Prominent last-updated stamp — signal for Google и для пользователя */}
+              <div className="hud-frame px-4 py-2 mt-4 inline-flex items-center gap-3 flex-wrap">
+                <span className="hud-corner-tl" />
+                <span className="hud-corner-br" />
+                <span className="font-data text-[10px] uppercase tracking-widest text-color-text-muted">
+                  Last updated
+                </span>
+                <time
+                  dateTime={meta.lastUpdated}
+                  className="font-data text-sm text-color-text tabular-nums"
+                >
+                  {formatDateTimeUtc(meta.lastUpdated)}
+                </time>
+                <span className="font-data text-[10px] uppercase tracking-widest text-color-text-subtle">
+                  · Auto-monitored from WHO · ECDC · Reuters · AP
                 </span>
               </div>
             </header>
@@ -138,6 +213,7 @@ export default function OutbreakPage({ params }: Props) {
               countries={meta.stats.countries}
               disembarked={meta.stats.disembarkedUnaware ?? 0}
               firstSymptomDate={meta.stats.firstSymptomDate ?? meta.startDate}
+              outbreakStatus={meta.status}
             />
 
             {/* Lead text */}
@@ -156,9 +232,16 @@ export default function OutbreakPage({ params }: Props) {
                   </a>
                 </sup>{" "}
                 On 6 April, the first passenger developed symptoms consistent
-                with hantavirus infection. The pathogen — the Andes strain of
-                hantavirus — is known to cause hantavirus pulmonary syndrome
-                with a historical case fatality rate of up to 40%.
+                with{" "}
+                <Link
+                  href="/pathogen/hantavirus"
+                  className="text-color-accent hover:underline"
+                >
+                  hantavirus infection
+                </Link>
+                . The pathogen — the Andes strain of hantavirus — is known to
+                cause hantavirus pulmonary syndrome with a historical case
+                fatality rate of up to 40%.
                 <sup>
                   <a
                     href="#source-7"
@@ -171,9 +254,15 @@ export default function OutbreakPage({ params }: Props) {
               </p>
               <p>
                 On 24 April, the ship made a scheduled stop at St Helena island
-                in the South Atlantic. Twenty-three passengers disembarked and
-                departed for their home countries, unaware that an outbreak was
-                developing on board.
+                in the South Atlantic.{" "}
+                <Link
+                  href={`/outbreak/${meta.slug}/disembarked`}
+                  className="text-color-accent hover:underline"
+                >
+                  Twenty-three passengers disembarked
+                </Link>{" "}
+                and departed for their home countries, unaware that an outbreak
+                was developing on board.
                 <sup>
                   <a
                     href="#source-2"
@@ -188,8 +277,7 @@ export default function OutbreakPage({ params }: Props) {
                 symptoms for some time after departing the ship.
               </p>
               <p>
-                By 7 May 2026, eight cases had been confirmed and three people
-                had died. Both Cabo Verde and the Canary Islands refused to
+                Both Cabo Verde and the Canary Islands initially refused to
                 allow the ship to dock.
                 <sup>
                   <a
@@ -200,11 +288,18 @@ export default function OutbreakPage({ params }: Props) {
                     [1]
                   </a>
                 </sup>{" "}
-                The vessel was redirected to Tenerife, with an estimated arrival
-                of 9 May. The World Health Organization assessed the risk of
-                wider international spread as low, given the limited
-                transmissibility of the Andes strain compared with respiratory
-                pathogens such as SARS-CoV-2.
+                After Spain granted permission, the vessel docked at the port
+                of Granadilla, Tenerife on 10 May 2026 and passenger evacuation
+                began. Repatriation flights have departed for the Netherlands,
+                Australia, the United States and France; subsequent positive
+                tests in the United States, France and a second suspected case
+                in Catalonia were reported within 48 hours of evacuation. Spain
+                imposed a 42-day quarantine on repatriated passengers,
+                consistent with the maximum Andes-strain incubation period. The
+                World Health Organization continues to assess the risk of wider
+                international spread as low, given the limited transmissibility
+                of the Andes strain compared with respiratory pathogens such as
+                SARS-CoV-2.
               </p>
             </div>
 
@@ -265,7 +360,13 @@ export default function OutbreakPage({ params }: Props) {
                 identified. The Andes strain has an incubation period of one to
                 eight weeks, meaning those individuals could develop symptoms
                 weeks after their departure. Health authorities in several
-                countries have initiated contact-tracing programmes.
+                countries have initiated contact-tracing programmes.{" "}
+                <Link
+                  href={`/outbreak/${meta.slug}/disembarked`}
+                  className="text-color-accent hover:underline"
+                >
+                  Full disembarked breakdown →
+                </Link>
               </p>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm border-collapse max-w-xl">
@@ -368,6 +469,11 @@ export default function OutbreakPage({ params }: Props) {
                 Read full guide on hantavirus →
               </Link>
             </section>
+
+            <hr className="divider my-10" />
+
+            {/* FAQ */}
+            <OutbreakFAQ data={data} />
 
             <hr className="divider my-10" />
 

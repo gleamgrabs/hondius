@@ -21,3 +21,24 @@ export function daysSince(isoDate: string): number {
   const now = Date.now();
   return Math.floor((now - start) / (1000 * 60 * 60 * 24));
 }
+
+export function monthYear(): string {
+  return new Date().toLocaleDateString("en-GB", {
+    month: "long",
+    year: "numeric",
+  });
+}
+
+export function formatDateTimeUtc(isoDate: string): string {
+  const d = new Date(isoDate);
+  if (isNaN(d.getTime())) return isoDate;
+  return d.toLocaleString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "UTC",
+    timeZoneName: "short",
+  });
+}

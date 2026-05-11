@@ -10,7 +10,24 @@ export async function GET(req: NextRequest) {
   const title = searchParams.get("title") ?? "Outbreak Tracker";
   const cases = searchParams.get("cases") ?? "—";
   const deaths = searchParams.get("deaths") ?? "—";
-  const updated = searchParams.get("updated") ?? "7 May 2026";
+  const updated = searchParams.get("updated") ?? new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+  const status = (searchParams.get("status") ?? "active") as
+    | "active"
+    | "contained"
+    | "resolved";
+
+  const statusLabel =
+    status === "contained"
+      ? "Contained · Monitoring"
+      : status === "resolved"
+      ? "Resolved"
+      : "Active";
+  const statusColor =
+    status === "contained"
+      ? "#b8860b"
+      : status === "resolved"
+      ? "#10b981"
+      : "#c8322a";
 
   return new ImageResponse(
     (
@@ -124,14 +141,14 @@ export async function GET(req: NextRequest) {
                 fontSize: "12px",
                 letterSpacing: "0.12em",
                 textTransform: "uppercase",
-                color: "#c8322a",
+                color: statusColor,
                 fontFamily: "monospace",
-                border: "1px solid #c8322a",
+                border: `1px solid ${statusColor}`,
                 padding: "3px 8px",
                 marginBottom: "8px",
               }}
             >
-              Active
+              {statusLabel}
             </div>
             <div
               style={{
@@ -165,7 +182,7 @@ export async function GET(req: NextRequest) {
             left: "0",
             right: "0",
             height: "4px",
-            backgroundColor: "#c8322a",
+            backgroundColor: statusColor,
           }}
         />
       </div>
