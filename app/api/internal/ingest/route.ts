@@ -11,6 +11,7 @@ import {
   appendSourceToEvent,
 } from "@/lib/db";
 import { getAllOutbreakSlugs } from "@/lib/outbreaks";
+import { normalizeEvent } from "@/lib/normalize-event";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -158,13 +159,19 @@ export async function POST(req: Request) {
   const errors: Array<{ index: number; error: string }> = [];
   const slugsTouched = new Set<string>();
 
-  parsed.data.candidates.forEach((cand, idx) => {
+  const normalized: Array<{ id: string }> = [];
+  const sentToReview: Array<{ id: string; reason: string }> = [];
+  const anthropicKey = process.env.ANTHROPIC_API_KEY;
+
+  for (let idx = 0; idx < parsed.data.candidates.length; idx++) {
+    const cand = parsed.data.candidates[idx];
+
     if (!validSlugs.has(cand.outbreakSlug)) {
       errors.push({
         index: idx,
         error: `Unknown outbreak slug: ${cand.outbreakSlug}`,
       });
-      return;
+      continue;
     }
 
     try {
@@ -176,11 +183,12 @@ export async function POST(req: Request) {
             id: cand.payload.id,
             reason: "duplicate (exact id)",
           });
-          return;
+          continue;
         }
 
         // Уровень 2: семантический дубликат — та же дата, ≥threshold token overlap.
-        // Только для live-кандидатов (pending можно ревьюить в admin отдельно).
+        // Используем raw title/description для матчинга (до нормализации) —
+        // так дедупликация работает и тогда когда LLM не подключён.
         if (cand.status === "live") {
           const candTokens = tokenize(
             `${cand.payload.title} ${cand.payload.description}`
@@ -209,8 +217,38 @@ export async function POST(req: Request) {
               overlap: Number(bestMatch.ratio.toFixed(2)),
             });
             slugsTouched.add(cand.outbreakSlug);
-            return;
+            continue;
           }
+        }
+
+        // ─── LLM нормализация (если ANTHROPIC_API_KEY задан) ──────────
+        let finalTitle = cand.payload.title;
+        let finalDescription = cand.payload.description;
+        let finalStatus: "live" | "pending" | "rejected" = cand.status;
+        if (anthropicKey) {
+          const norm = await normalizeEvent(
+            {
+              title: cand.payload.title,
+              description: cand.payload.description,
+              publisher: cand.sourcePublisher,
+              date: cand.payload.date,
+              sourceUrl: cand.sourceUrl,
+            },
+            anthropicKey
+          );
+          if (norm === null) {
+            // Editor сказал «не годится» — в pending для admin review
+            finalStatus = "pending";
+            sentToReview.push({
+              id: cand.payload.id,
+              reason: "LLM editor: not enough factual content",
+            });
+          } else if (norm) {
+            finalTitle = norm.title;
+            finalDescription = norm.description;
+            normalized.push({ id: cand.payload.id });
+          }
+          // norm === undefined → fallback на raw без изменений
         }
 
         // Уникальный → INSERT
@@ -218,21 +256,21 @@ export async function POST(req: Request) {
           id: cand.payload.id,
           outbreak_slug: cand.outbreakSlug,
           date: cand.payload.date,
-          title: cand.payload.title,
-          description: cand.payload.description,
+          title: finalTitle,
+          description: finalDescription,
           severity: cand.payload.severity,
           source_ids: JSON.stringify(cand.payload.sources),
-          status: cand.status,
+          status: finalStatus,
           source_url: cand.sourceUrl,
           source_publisher: cand.sourcePublisher,
           raw_payload: JSON.stringify(cand.rawPayload ?? null),
-          approved_at: cand.status === "live" ? Date.now() : null,
-          approved_by: cand.status === "live" ? "auto" : null,
+          approved_at: finalStatus === "live" ? Date.now() : null,
+          approved_by: finalStatus === "live" ? "auto" : null,
         });
         inserted.push({
           type: "event",
           id: cand.payload.id,
-          status: cand.status,
+          status: finalStatus,
         });
         slugsTouched.add(cand.outbreakSlug);
       } else if (cand.type === "case") {
@@ -273,7 +311,7 @@ export async function POST(req: Request) {
     } catch (e) {
       errors.push({ index: idx, error: String(e) });
     }
-  });
+  }
 
   // Триггерим ISR-revalidate всех страниц затронутой вспышки.
   for (const slug of slugsTouched) {
@@ -294,6 +332,9 @@ export async function POST(req: Request) {
     merged,
     skipped,
     errors,
+    normalized,
+    sentToReview,
     dedupThreshold: DEDUP_OVERLAP_THRESHOLD,
+    llmNormalization: anthropicKey ? "enabled" : "disabled",
   });
 }
