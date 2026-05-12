@@ -261,6 +261,63 @@ export function liveEventExists(id: string): boolean {
   return !!row;
 }
 
+/** Все live-events за конкретную дату — для семантического дедупа. */
+export function getLiveEventsByDate(
+  slug: string,
+  date: string
+): LiveEventRow[] {
+  const db = getDb();
+  return db
+    .prepare(
+      "SELECT * FROM live_events WHERE outbreak_slug = ? AND date LIKE ? AND status = 'live'"
+    )
+    .all(slug, `${date.slice(0, 10)}%`) as LiveEventRow[];
+}
+
+/**
+ * Дозаписывает sourceUrl в source_ids JSON-массив существующего event'а.
+ * Используется semantic-dedup: при совпадении нового кандидата с existing
+ * мы не вставляем новый event, а добавляем url к уже существующему.
+ */
+export function appendSourceToEvent(
+  eventId: string,
+  sourceUrl: string,
+  sourcePublisher: string
+): boolean {
+  const db = getDb();
+  const row = db
+    .prepare("SELECT source_ids FROM live_events WHERE id = ?")
+    .get(eventId) as { source_ids: string } | undefined;
+  if (!row) return false;
+  let urls: string[];
+  try {
+    const parsed = JSON.parse(row.source_ids);
+    urls = Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    urls = [];
+  }
+  if (urls.includes(sourceUrl)) return false; // уже есть
+  urls.push(sourceUrl);
+  db.prepare(
+    "UPDATE live_events SET source_ids = ?, source_publisher = source_publisher || ?, raw_payload = raw_payload WHERE id = ?"
+  ).run(
+    JSON.stringify(urls),
+    // дописываем publisher в существующее поле (через запятую) если ещё не там
+    "",
+    eventId
+  );
+  // Update publisher отдельно, добавив через запятую если ещё не в строке
+  const pubRow = db
+    .prepare("SELECT source_publisher FROM live_events WHERE id = ?")
+    .get(eventId) as { source_publisher: string };
+  if (pubRow && !pubRow.source_publisher.split(",").map((s) => s.trim()).includes(sourcePublisher)) {
+    db.prepare(
+      "UPDATE live_events SET source_publisher = ? WHERE id = ?"
+    ).run(`${pubRow.source_publisher}, ${sourcePublisher}`, eventId);
+  }
+  return true;
+}
+
 // ─── Live cases helpers ──────────────────────────────────────────────
 export function getLiveCases(
   slug: string,

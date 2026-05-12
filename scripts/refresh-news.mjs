@@ -56,16 +56,70 @@ const FEEDS = [
     publisher: "Euronews",
     authority: "low",
   },
+  // ─── Additional mainstream feeds (medium authority) ─────────────────
+  {
+    name: "CNN Health",
+    url: "https://rss.cnn.com/rss/edition_health.rss",
+    publisher: "CNN",
+    authority: "medium",
+  },
+  {
+    name: "NPR Health",
+    url: "https://feeds.npr.org/1128/rss.xml",
+    publisher: "NPR",
+    authority: "medium",
+  },
+  {
+    name: "NYT Health",
+    url: "https://rss.nytimes.com/services/xml/rss/nyt/Health.xml",
+    publisher: "The New York Times",
+    authority: "medium",
+  },
+  {
+    name: "BBC Health",
+    url: "https://feeds.bbci.co.uk/news/health/rss.xml",
+    publisher: "BBC News",
+    authority: "medium",
+  },
+  {
+    name: "Al Jazeera",
+    url: "https://www.aljazeera.com/xml/rss/all.xml",
+    publisher: "Al Jazeera",
+    authority: "medium",
+  },
 ];
 
-// Минимум одно совпадение этих ключей в title+description, иначе отбрасывем.
-// "hantavirus" сам по себе НЕ пропускаем — много шума про Аргентину/Чили/США.
-const HONDIUS_KEYWORDS = [
+// Hondius-привязка строится из двух уровней.
+//
+// PRIMARY: явное упоминание корабля или оператора. Одного совпадения достаточно для live.
+const HONDIUS_PRIMARY = [
   "mv hondius",
   "hondius",
   "oceanwide expeditions",
   "oceanwide cruise",
 ];
+// SECONDARY: контекстные термины. По одному из них недостаточно (слишком общие),
+// но 2+ из этого списка ИЛИ 1 secondary + 1 primary даёт уверенное совпадение.
+const HONDIUS_SECONDARY = [
+  "hondius hantavirus",
+  "cruise ship hantavirus",
+  "hantavirus cruise",
+  "tenerife hantavirus",
+  "granadilla hantavirus",
+  "hantavirus passengers",
+  "andes virus",
+  "saint helena hantavirus",
+  "st helena hantavirus",
+  "nebraska hantavirus",
+  "tristan da cunha hantavirus",
+  "canary islands hantavirus",
+  "hantavirus tenerife",
+  "hantavirus outbreak",
+  "andes hantavirus",
+];
+
+// Объединённый whitelist для обратной совместимости (используется в проверке релевантности).
+const HONDIUS_KEYWORDS = [...HONDIUS_PRIMARY, ...HONDIUS_SECONDARY];
 
 // severity routing
 const CRITICAL_KW = [
@@ -154,9 +208,9 @@ function parseRss(xml) {
 }
 
 // ─── routing logic ───────────────────────────────────────────────────
-function isHondiusRelevant(text) {
+function countMatches(text, kwList) {
   const lower = text.toLowerCase();
-  return HONDIUS_KEYWORDS.some((kw) => lower.includes(kw));
+  return kwList.reduce((n, kw) => (lower.includes(kw) ? n + 1 : n), 0);
 }
 
 function classifySeverity(text) {
@@ -166,21 +220,40 @@ function classifySeverity(text) {
   return "info";
 }
 
-function countMatches(text, kwList) {
-  const lower = text.toLowerCase();
-  return kwList.reduce((n, kw) => (lower.includes(kw) ? n + 1 : n), 0);
+/**
+ * Hondius-релевантность.
+ *  - 1+ PRIMARY (mv hondius / hondius / oceanwide …)  → релевантно
+ *  - 0 PRIMARY и 2+ SECONDARY                          → релевантно
+ *  - иначе                                              → НЕ релевантно
+ *
+ * Это закрывает оба кейса: статья прямо про корабль (primary) ИЛИ
+ * статья про «cruise ship hantavirus Tenerife evacuation» где Hondius не
+ * назван по имени, но по контексту явно про него.
+ */
+function isHondiusRelevant(text) {
+  const primary = countMatches(text, HONDIUS_PRIMARY);
+  if (primary >= 1) return true;
+  const secondary = countMatches(text, HONDIUS_SECONDARY);
+  return secondary >= 2;
 }
 
 function publishStatusForFeed(feed, text) {
   // Safety override — все items в pending, оператор разбирает.
   if (FORCE_PENDING) return "pending";
 
-  // high authority → live сразу
+  const primary = countMatches(text, HONDIUS_PRIMARY);
+  const secondary = countMatches(text, HONDIUS_SECONDARY);
+  const strong = primary >= 1 && (primary + secondary) >= 2; // sterk binding
+
+  // high authority → live при любом релевантном совпадении
   if (feed.authority === "high") return "live";
-  // medium: live только если ≥2 keyword из Hondius-привязки совпало
+
+  // medium: live только при strong binding (1+ primary AND total ≥2),
+  // иначе — pending для admin-review.
   if (feed.authority === "medium") {
-    return countMatches(text, HONDIUS_KEYWORDS) >= 2 ? "live" : "pending";
+    return strong ? "live" : "pending";
   }
+
   // low: всегда pending
   return "pending";
 }

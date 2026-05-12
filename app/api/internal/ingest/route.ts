@@ -7,11 +7,55 @@ import {
   insertLiveCase,
   insertLiveSource,
   liveEventExists,
+  getLiveEventsByDate,
+  appendSourceToEvent,
 } from "@/lib/db";
 import { getAllOutbreakSlugs } from "@/lib/outbreaks";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+// Семантический dedup threshold — token-overlap ratio выше которого два события
+// считаются «одной и той же новостью» из разных источников.
+// Стартовое 0.5: половина значимых слов совпадает. Override через env.
+const DEDUP_OVERLAP_THRESHOLD = (() => {
+  const v = parseFloat(process.env.DEDUP_OVERLAP_THRESHOLD ?? "0.5");
+  return Number.isFinite(v) && v > 0 && v <= 1 ? v : 0.5;
+})();
+
+const STOPWORDS = new Set([
+  "after","again","also","amid","arrive","arrives","arrival","arrived",
+  "before","being","both","cruise","docks","docked","docking","during",
+  "from","have","into","just","more","most","much","over","said","says",
+  "ship","ships","since","some","such","than","that","their","them","then",
+  "there","these","they","this","those","through","under","until","very","ware",
+  "watch","week","were","what","when","where","which","while","will","with",
+  "would","your","about","above","after","again","against","alone","along",
+  "among","another","because","before","below","could","every","first","further",
+  "general","government","group","groups","health","including","just","later","like","made",
+  "make","many","might","minister","ministry","much","much","national",
+  "official","officials","other","others","passenger","passengers","people","person",
+  "report","reported","reports","said","says","several","since","spain","spanish",
+  "still","such","take","taken","takes","taking","tell","told","total",
+  "today","tonight","tuesday","wednesday","thursday","friday","saturday","sunday","monday",
+]);
+
+function tokenize(s: string): Set<string> {
+  return new Set(
+    s
+      .toLowerCase()
+      .replace(/[^a-z0-9\s]/g, " ")
+      .split(/\s+/)
+      .filter((w) => w.length >= 4 && !STOPWORDS.has(w))
+  );
+}
+
+function overlap(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let n = 0;
+  for (const t of a) if (b.has(t)) n++;
+  return n / Math.min(a.size, b.size);
+}
 
 const SeverityEnum = z.enum(["info", "warning", "critical"]);
 const PublishStatusEnum = z.enum(["live", "pending", "rejected"]);
@@ -110,6 +154,7 @@ export async function POST(req: Request) {
   const validSlugs = new Set(getAllOutbreakSlugs());
   const inserted: Array<{ type: string; id: string; status?: string }> = [];
   const skipped: Array<{ type: string; id: string; reason: string }> = [];
+  const merged: Array<{ id: string; mergedInto: string; overlap: number }> = [];
   const errors: Array<{ index: number; error: string }> = [];
   const slugsTouched = new Set<string>();
 
@@ -124,14 +169,51 @@ export async function POST(req: Request) {
 
     try {
       if (cand.type === "event") {
+        // Уровень 1: точный дубликат по id (стабильный hash от url+title)
         if (liveEventExists(cand.payload.id)) {
           skipped.push({
             type: "event",
             id: cand.payload.id,
-            reason: "duplicate",
+            reason: "duplicate (exact id)",
           });
           return;
         }
+
+        // Уровень 2: семантический дубликат — та же дата, ≥threshold token overlap.
+        // Только для live-кандидатов (pending можно ревьюить в admin отдельно).
+        if (cand.status === "live") {
+          const candTokens = tokenize(
+            `${cand.payload.title} ${cand.payload.description}`
+          );
+          const existingSameDate = getLiveEventsByDate(
+            cand.outbreakSlug,
+            cand.payload.date
+          );
+          let bestMatch: { id: string; ratio: number } | null = null;
+          for (const e of existingSameDate) {
+            const existingTokens = tokenize(`${e.title} ${e.description}`);
+            const r = overlap(candTokens, existingTokens);
+            if (r >= DEDUP_OVERLAP_THRESHOLD && (!bestMatch || r > bestMatch.ratio)) {
+              bestMatch = { id: e.id, ratio: r };
+            }
+          }
+          if (bestMatch) {
+            appendSourceToEvent(
+              bestMatch.id,
+              cand.sourceUrl,
+              cand.sourcePublisher
+            );
+            merged.push({
+              id: cand.payload.id,
+              mergedInto: bestMatch.id,
+              overlap: Number(bestMatch.ratio.toFixed(2)),
+            });
+            slugsTouched.add(cand.outbreakSlug);
+            return;
+          }
+        }
+
+        // Уникальный → INSERT
         insertLiveEvent({
           id: cand.payload.id,
           outbreak_slug: cand.outbreakSlug,
@@ -206,5 +288,12 @@ export async function POST(req: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, inserted, skipped, errors });
+  return NextResponse.json({
+    ok: true,
+    inserted,
+    merged,
+    skipped,
+    errors,
+    dedupThreshold: DEDUP_OVERLAP_THRESHOLD,
+  });
 }

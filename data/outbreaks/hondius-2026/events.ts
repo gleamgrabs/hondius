@@ -2,6 +2,73 @@ import type { OutbreakEvent } from "@/lib/types";
 
 export const events: OutbreakEvent[] = [
   {
+    id: "evt-15",
+    date: "2026-05-12",
+    title:
+      'WHO Director-General Tedros: "This is not another COVID"',
+    description:
+      "In a UN News statement, WHO Director-General Tedros Adhanom Ghebreyesus emphasised that the wider public risk from the MV Hondius outbreak remains low, calling the operation a successful international response and stating directly that the event is not comparable to COVID-19. The phase has shifted from active maritime response to post-evacuation surveillance, with national health authorities handling contact tracing and isolation of confirmed and probable cases in destination countries.",
+    severity: "warning",
+    sources: [
+      "https://news.un.org/",
+      "https://www.who.int/",
+    ],
+  },
+  {
+    id: "evt-14",
+    date: "2026-05-11",
+    title:
+      "Evacuation complete — 122 individuals repatriated; 16 Americans to Nebraska",
+    description:
+      "All 122 individuals (87 passengers and 35 crew) have been repatriated from the MV Hondius. Sixteen US nationals arrived at the University of Nebraska Medical Center — 15 admitted to the quarantine unit, one to the biocontainment unit. A further two US passengers were flown to Atlanta for additional assessment. Two new positives have been detected after evacuation: one French passenger and one US passenger, bringing the total confirmed and probable cases to ten. A small skeleton crew remains aboard to sail the ship to Rotterdam for full decontamination.",
+    severity: "critical",
+    sources: [
+      "https://www.nbcnews.com/",
+      "https://abc7chicago.com/",
+      "https://www.aljazeera.com/",
+    ],
+  },
+  {
+    id: "evt-13",
+    date: "2026-05-10",
+    title:
+      "MV Hondius docks at Granadilla; evacuation flights begin",
+    description:
+      "After Spain granted permission, the MV Hondius docked at Granadilla Port, Tenerife, on Sunday 10 May. Disembarkation began in order of homeward-bound flight departure times — Spanish nationals first. The first evacuation flight took off at 13:31 local time. By late evening, seven evacuation flights had departed transporting 94 passengers of 19 nationalities to six European destinations and Canada. All travellers were escorted to shore by personnel in full-body protective equipment.",
+    severity: "critical",
+    sources: [
+      "https://edition.cnn.com/",
+      "https://www.reuters.com/",
+      "https://www.npr.org/",
+      "https://www.cnbc.com/",
+    ],
+  },
+  {
+    id: "evt-12",
+    date: "2026-05-08",
+    title:
+      "WHO Disease Outbreak News: 6 lab-confirmed, 75 contacts traced in South Africa",
+    description:
+      "WHO published a detailed Disease Outbreak News update. Of the eight cases (three deaths), six are now laboratory-confirmed for Andes hantavirus; four patients remained hospitalised. Seventy-five contacts had been identified in South Africa, with 42 actively being traced. WHO and ECDC technical experts joined the ship's medical team. A probable case was identified at Tristan da Cunha among passengers who disembarked there on 14 April. WHO advised against routine testing or quarantine of asymptomatic contacts.",
+    severity: "critical",
+    sources: [
+      "https://www.who.int/",
+      "https://www.ecdc.europa.eu/",
+    ],
+  },
+  {
+    id: "evt-11",
+    date: "2026-05-08",
+    title: "MV Hondius arrives at Granadilla Port, Tenerife",
+    description:
+      "The MV Hondius reached Granadilla Port, Tenerife, around midday after the Atlantic crossing. More than one hundred passengers representing twenty-three nationalities remained aboard. Spanish authorities prepared a hazmat-protected disembarkation protocol for the coming days; the ship anchored offshore awaiting evacuation logistics to finalise.",
+    severity: "critical",
+    sources: [
+      "https://edition.cnn.com/",
+      "https://abcnews.go.com/",
+    ],
+  },
+  {
     id: "evt-10",
     date: "2026-05-07",
     title: "Eight confirmed cases; Canary Islands denies entry",
