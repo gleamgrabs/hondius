@@ -23,6 +23,9 @@ services:
       # MV_HONDIUS_MMSI also needed here, чтобы /api/outbreaks/{slug}/ship-position
       # знал какой MMSI запрашивать из ship_positions.
       MV_HONDIUS_MMSI: ${MV_HONDIUS_MMSI:-}
+      # Claude Haiku key for /api/internal/ingest LLM normalization and
+      # scripts/normalize-existing.mjs CLI. Optional — fallback to raw if unset.
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
     volumes:
       - hondius_data:/app/data
     networks:
