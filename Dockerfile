@@ -38,6 +38,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
+# CLI scripts for normalize-existing, broadcast, etc.
+COPY --from=builder --chown=nextjs:nodejs /app/scripts ./scripts
 # better-sqlite3 has native bindings — copy from full node_modules
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/better-sqlite3 ./node_modules/better-sqlite3
 COPY --from=builder --chown=nextjs:nodejs /app/node_modules/bindings ./node_modules/bindings
