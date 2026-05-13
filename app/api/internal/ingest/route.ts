@@ -160,8 +160,16 @@ export async function POST(req: Request) {
   const slugsTouched = new Set<string>();
 
   const normalized: Array<{ id: string }> = [];
-  const sentToReview: Array<{ id: string; reason: string }> = [];
+  const autoApproved: Array<{ id: string; confidence: number; reason: string }> = [];
+  const autoRejected: Array<{ title: string; confidence: number; reason: string }> = [];
+  const pendingForReview: Array<{ id: string; confidence: number; reason: string }> = [];
   const anthropicKey = process.env.ANTHROPIC_API_KEY;
+  const AUTO_APPROVE = parseFloat(
+    process.env.LLM_AUTO_APPROVE_THRESHOLD ?? "0.7"
+  );
+  const AUTO_REJECT = parseFloat(
+    process.env.LLM_AUTO_REJECT_THRESHOLD ?? "0.7"
+  );
 
   for (let idx = 0; idx < parsed.data.candidates.length; idx++) {
     const cand = parsed.data.candidates[idx];
@@ -221,12 +229,24 @@ export async function POST(req: Request) {
           }
         }
 
-        // ─── LLM нормализация (если ANTHROPIC_API_KEY задан) ──────────
+        // ─── LLM judgement: relevance + normalization ──────────────────
+        // High-authority sources (WHO/ECDC) пропускают LLM judgement —
+        // безусловно trusted, candidate.status уже "live".
+        // Для остальных — LLM решает auto-approve / auto-reject / pending.
         let finalTitle = cand.payload.title;
         let finalDescription = cand.payload.description;
         let finalStatus: "live" | "pending" | "rejected" = cand.status;
-        if (anthropicKey) {
-          const norm = await normalizeEvent(
+        let approvedBy: string = finalStatus === "live" ? "auto" : "";
+        let llmConfidence: number | null = null;
+        let llmReason: string | null = null;
+
+        const isHighAuthority =
+          cand.sourcePublisher === "World Health Organization" ||
+          cand.sourcePublisher ===
+            "European Centre for Disease Prevention and Control";
+
+        if (anthropicKey && !isHighAuthority) {
+          const llm = await normalizeEvent(
             {
               title: cand.payload.title,
               description: cand.payload.description,
@@ -236,19 +256,58 @@ export async function POST(req: Request) {
             },
             anthropicKey
           );
-          if (norm === null) {
-            // Editor сказал «не годится» — в pending для admin review
-            finalStatus = "pending";
-            sentToReview.push({
-              id: cand.payload.id,
-              reason: "LLM editor: not enough factual content",
+
+          if (llm.kind === "error") {
+            // LLM down — fallback на изначальный candidate.status
+            // (PRIMARY/SECONDARY rules в refresh-news.mjs уже отработали).
+          } else if (llm.kind === "not-relevant" && llm.confidence >= AUTO_REJECT) {
+            // Уверенный «не релевантно» — auto-reject, событие НЕ сохраняем.
+            autoRejected.push({
+              title: cand.payload.title.slice(0, 100),
+              confidence: llm.confidence,
+              reason: llm.reason,
             });
-          } else if (norm) {
-            finalTitle = norm.title;
-            finalDescription = norm.description;
+            continue;
+          } else if (llm.kind === "not-relevant") {
+            // Низкая уверенность что не релевантно — в pending.
+            finalStatus = "pending";
+            approvedBy = "";
+            llmConfidence = llm.confidence;
+            llmReason = llm.reason;
+            pendingForReview.push({
+              id: cand.payload.id,
+              confidence: llm.confidence,
+              reason: llm.reason,
+            });
+          } else if (llm.kind === "relevant" && llm.confidence >= AUTO_APPROVE) {
+            // Уверенный «релевантно» — auto-approve в live + normalize text.
+            finalTitle = llm.title;
+            finalDescription = llm.description;
+            finalStatus = "live";
+            approvedBy = "auto-llm";
+            llmConfidence = llm.confidence;
+            llmReason = llm.reason;
+            autoApproved.push({
+              id: cand.payload.id,
+              confidence: llm.confidence,
+              reason: llm.reason,
+            });
+            normalized.push({ id: cand.payload.id });
+          } else if (llm.kind === "relevant") {
+            // Граничный (relevant но < AUTO_APPROVE) — в pending с нормализованным текстом.
+            finalTitle = llm.title;
+            finalDescription = llm.description;
+            finalStatus = "pending";
+            approvedBy = "";
+            llmConfidence = llm.confidence;
+            llmReason = llm.reason;
+            pendingForReview.push({
+              id: cand.payload.id,
+              confidence: llm.confidence,
+              reason: llm.reason,
+            });
             normalized.push({ id: cand.payload.id });
           }
-          // norm === undefined → fallback на raw без изменений
         }
 
         // Уникальный → INSERT
@@ -265,7 +324,9 @@ export async function POST(req: Request) {
           source_publisher: cand.sourcePublisher,
           raw_payload: JSON.stringify(cand.rawPayload ?? null),
           approved_at: finalStatus === "live" ? Date.now() : null,
-          approved_by: finalStatus === "live" ? "auto" : null,
+          approved_by: approvedBy || null,
+          llm_confidence: llmConfidence,
+          llm_reason: llmReason,
         });
         inserted.push({
           type: "event",
@@ -330,11 +391,15 @@ export async function POST(req: Request) {
     ok: true,
     inserted,
     merged,
-    skipped,
+    skipped_duplicates: skipped,
     errors,
     normalized,
-    sentToReview,
+    auto_approved: autoApproved,
+    auto_rejected: autoRejected,
+    pending_for_review: pendingForReview,
     dedupThreshold: DEDUP_OVERLAP_THRESHOLD,
+    llmAutoApprove: AUTO_APPROVE,
+    llmAutoReject: AUTO_REJECT,
     llmNormalization: anthropicKey ? "enabled" : "disabled",
   });
 }

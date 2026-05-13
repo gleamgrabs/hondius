@@ -127,6 +127,18 @@ export function getDb(): Database.Database {
     );
   }
 
+  // Идемпотентные миграции для live_events — llm_confidence + llm_reason
+  // (audit trail для LLM-routing).
+  const eventCols = db
+    .prepare("PRAGMA table_info(live_events)")
+    .all() as Array<{ name: string }>;
+  if (!eventCols.some((c) => c.name === "llm_confidence")) {
+    db.exec("ALTER TABLE live_events ADD COLUMN llm_confidence REAL");
+  }
+  if (!eventCols.some((c) => c.name === "llm_reason")) {
+    db.exec("ALTER TABLE live_events ADD COLUMN llm_reason TEXT");
+  }
+
   _db = db;
   return db;
 }
@@ -159,6 +171,8 @@ export interface LiveEventRow {
   created_at: number;
   approved_at: number | null;
   approved_by: string | null;
+  llm_confidence: number | null;
+  llm_reason: string | null;
 }
 
 export interface LiveCaseRow {
@@ -215,12 +229,18 @@ export function getLiveEvents(
     .all(slug, status) as LiveEventRow[];
 }
 
-export function insertLiveEvent(row: Omit<LiveEventRow, "created_at"> & { created_at?: number }): void {
+export function insertLiveEvent(
+  row: Omit<LiveEventRow, "created_at" | "llm_confidence" | "llm_reason"> & {
+    created_at?: number;
+    llm_confidence?: number | null;
+    llm_reason?: string | null;
+  }
+): void {
   const db = getDb();
   db.prepare(
     `INSERT OR IGNORE INTO live_events
-     (id, outbreak_slug, date, title, description, severity, source_ids, status, source_url, source_publisher, raw_payload, created_at, approved_at, approved_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+     (id, outbreak_slug, date, title, description, severity, source_ids, status, source_url, source_publisher, raw_payload, created_at, approved_at, approved_by, llm_confidence, llm_reason)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     row.id,
     row.outbreak_slug,
@@ -235,7 +255,9 @@ export function insertLiveEvent(row: Omit<LiveEventRow, "created_at"> & { create
     row.raw_payload,
     row.created_at ?? Date.now(),
     row.approved_at ?? null,
-    row.approved_by ?? null
+    row.approved_by ?? null,
+    row.llm_confidence ?? null,
+    row.llm_reason ?? null
   );
 }
 
@@ -250,6 +272,51 @@ export function setEventStatus(
       "UPDATE live_events SET status = ?, approved_at = ?, approved_by = ? WHERE id = ?"
     )
     .run(status, Date.now(), approvedBy, id);
+  return result.changes > 0;
+}
+
+/**
+ * Применяет LLM judgement к existing event'у: обновляет status, optionally
+ * title/description, и сохраняет confidence/reason для audit.
+ */
+export function applyLlmJudgement(
+  id: string,
+  patch: {
+    status: LiveEventRow["status"];
+    title?: string;
+    description?: string;
+    confidence: number;
+    reason: string;
+    approvedBy: string;
+  }
+): boolean {
+  const db = getDb();
+  const sets: string[] = [
+    "status = ?",
+    "approved_at = ?",
+    "approved_by = ?",
+    "llm_confidence = ?",
+    "llm_reason = ?",
+  ];
+  const params: Array<string | number> = [
+    patch.status,
+    Date.now(),
+    patch.approvedBy,
+    patch.confidence,
+    patch.reason,
+  ];
+  if (typeof patch.title === "string") {
+    sets.push("title = ?");
+    params.push(patch.title);
+  }
+  if (typeof patch.description === "string") {
+    sets.push("description = ?");
+    params.push(patch.description);
+  }
+  params.push(id);
+  const result = db
+    .prepare(`UPDATE live_events SET ${sets.join(", ")} WHERE id = ?`)
+    .run(...params);
   return result.changes > 0;
 }
 

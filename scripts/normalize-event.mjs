@@ -1,39 +1,58 @@
-// LLM-нормализация title+description нового RSS-события в редакционный текст.
-// Claude Haiku 4.5 через fetch. Conservative output: либо нормализованный {title,
-// description}, либо null если статья не годится для timeline (skip), либо raw
-// при ошибке/недоступности API (fallback).
+// LLM editor + relevance classifier (Claude Haiku 4.5).
+// Зеркало lib/normalize-event.ts — один промпт, одна логика.
 //
-// Используется:
-//   - в /api/internal/ingest перед INSERT (forward path)
-//   - в scripts/normalize-existing.mjs для бэкфилла существующих БД-записей
+// Возвращает один из:
+//   { kind: 'relevant', isRelevant: true, confidence, reason, title, description }
+//   { kind: 'not-relevant', isRelevant: false, confidence, reason }
+//   { kind: 'error', error }
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const MODEL = "claude-haiku-4-5-20251001";
 
-const SYSTEM_PROMPT = `You are an editor for an outbreak tracker website. You receive a news article about a disease outbreak event and produce a concise, factual summary for a structured timeline entry.
+const SYSTEM_PROMPT = `You are an editor and topic classifier for an outbreak tracker website focused on the MV Hondius hantavirus outbreak (April-May 2026, cruise ship from Ushuaia to Tenerife, operated by Oceanwide Expeditions).
 
-Rules:
-- Output JSON only: {"title": string, "description": string}
-- Title: 8-14 words, factual, no "WATCH:", "BREAKING:", "URGENT:" prefixes, no questions, no clickbait, no exclamation marks
-- Description: 2-3 sentences, ~40-80 words, include specific numbers/locations/organisations when present in the source
-- Use neutral journalistic tone, present tense for ongoing situations, past tense for completed events
-- Preserve technical accuracy: case counts, death counts, lab confirmations, dates, organisation names
+You receive a news article and produce a JSON object:
+
+{
+  "is_relevant": boolean,
+  "confidence": number (0.0 - 1.0),
+  "reason": string (1 sentence, why relevant/not),
+  "title": string (only if is_relevant=true; 8-14 words, factual, no clickbait, no "WATCH:"/"BREAKING:"/"URGENT:" prefixes),
+  "description": string (only if is_relevant=true; 2-3 sentences, ~40-80 words, factual, with concrete numbers/locations/organisations from source)
+}
+
+RELEVANCE CRITERIA (set is_relevant=true if ANY apply):
+- Mentions MV Hondius or Oceanwide Expeditions by name
+- About hantavirus cases linked to a cruise ship in Atlantic/Tenerife/Saint Helena/Cape Verde/Canary Islands (mid-2026 timeframe)
+- About passengers from MV Hondius being repatriated/quarantined in any country
+- About contact tracing from MV Hondius outbreak
+- About WHO/CDC/ECDC response to the cruise ship outbreak specifically
+- About Andes virus cases in passengers from this outbreak
+
+SET is_relevant=false (NOT relevant) if:
+- General hantavirus background article without cruise ship context
+- Hantavirus cases in Argentina/Chile/US Four Corners not linked to MV Hondius
+- Other unrelated outbreaks (other diseases, other ships)
+- Pure opinion/editorial without factual content about the outbreak
+
+CONFIDENCE LEVELS:
+- 0.9-1.0: explicit mention of MV Hondius or "this cruise ship" outbreak
+- 0.7-0.89: clear context (Tenerife + cruise + hantavirus, or evacuation + passengers + hantavirus)
+- 0.5-0.69: probable but ambiguous (could be this outbreak, could be tangential)
+- 0.3-0.49: weak signal, mostly background
+- 0.0-0.29: clearly not about this outbreak
+
+RULES:
+- Output JSON only, no preamble
+- If is_relevant=false, set title="" and description=""
+- Use neutral journalistic tone in title/description
 - NEVER invent facts not in the source
-- NEVER include hyperlinks or markdown
-- If the source article does not contain enough concrete factual content to write a useful timeline entry (e.g. it's an opinion piece, a tangentially related background article, or a duplicate of an earlier event) — return {"title": "", "description": ""} and the event will be skipped or sent to admin review`;
+- Preserve dates, numbers, organisation names exactly as in source`;
 
-const TIMEOUT_MS = 15_000;
+const TIMEOUT_MS = 20_000;
 
-/**
- * @param {{ title: string, description: string, publisher?: string, date?: string, sourceUrl?: string }} raw
- * @param {string} apiKey ANTHROPIC_API_KEY
- * @returns {Promise<{title: string, description: string} | null | undefined>}
- *   - `{title, description}` — нормализованный текст для использования
- *   - `null` — статья не годится (skip / send to admin review)
- *   - `undefined` — API недоступен / ошибка / парс fail — caller использует raw как есть
- */
 export async function normalizeEvent(raw, apiKey) {
-  if (!apiKey) return undefined; // нет ключа → caller использует raw
+  if (!apiKey) return { kind: "error", error: "no API key" };
 
   const userMessage = [
     `Source title: ${raw.title ?? ""}`,
@@ -56,7 +75,7 @@ export async function normalizeEvent(raw, apiKey) {
       },
       body: JSON.stringify({
         model: MODEL,
-        max_tokens: 300,
+        max_tokens: 500,
         system: SYSTEM_PROMPT,
         messages: [{ role: "user", content: userMessage }],
       }),
@@ -64,80 +83,65 @@ export async function normalizeEvent(raw, apiKey) {
     });
   } catch (err) {
     console.error("[normalize] fetch error:", err.message);
-    return undefined;
+    return { kind: "error", error: String(err) };
   }
 
   if (!res.ok) {
     const text = await res.text();
     console.error(`[normalize] HTTP ${res.status}: ${text.slice(0, 200)}`);
-    return undefined;
+    return { kind: "error", error: `HTTP ${res.status}` };
   }
 
   let body;
   try {
     body = await res.json();
   } catch {
-    return undefined;
+    return { kind: "error", error: "response JSON parse failed" };
   }
 
   const text = (body.content?.[0]?.text ?? "").trim();
-  if (!text) return undefined;
+  if (!text) return { kind: "error", error: "empty response" };
 
-  // Find first {...} block
   const match = text.match(/\{[\s\S]*\}/);
-  if (!match) return undefined;
+  if (!match) return { kind: "error", error: "no JSON" };
 
   let parsed;
   try {
     parsed = JSON.parse(match[0]);
   } catch {
-    return undefined;
+    return { kind: "error", error: "JSON.parse failed" };
   }
 
-  if (
-    !parsed ||
-    typeof parsed !== "object" ||
-    typeof parsed.title !== "string" ||
-    typeof parsed.description !== "string"
-  ) {
-    return undefined;
+  const isRelevant = typeof parsed.is_relevant === "boolean" ? parsed.is_relevant : null;
+  const confidenceRaw = typeof parsed.confidence === "number" ? parsed.confidence : null;
+  const reason = typeof parsed.reason === "string" ? parsed.reason.slice(0, 300) : "";
+
+  if (isRelevant === null || confidenceRaw === null) {
+    return { kind: "error", error: "missing is_relevant or confidence" };
   }
 
-  const title = parsed.title.trim();
-  const description = parsed.description.trim();
+  const confidence = Math.max(0, Math.min(1, confidenceRaw));
 
-  // Empty pair → skip signal
-  if (title === "" && description === "") return null;
-  // Half-empty → invalid (fallback to raw)
-  if (title === "" || description === "") return undefined;
-
-  return { title, description };
-}
-
-// ─── CLI self-test ──────────────────────────────────────────────────
-if (import.meta.url === `file://${process.argv[1]}`) {
-  const args = new Set(process.argv.slice(2));
-  if (args.has("--self-test")) {
-    const apiKey = process.env.ANTHROPIC_API_KEY;
-    if (!apiKey) {
-      console.error("ANTHROPIC_API_KEY not set");
-      process.exit(1);
+  if (isRelevant) {
+    const title = typeof parsed.title === "string" ? parsed.title.trim() : "";
+    const description = typeof parsed.description === "string" ? parsed.description.trim() : "";
+    if (!title || !description) {
+      return { kind: "error", error: "relevant=true but empty text" };
     }
-    const result = await normalizeEvent(
-      {
-        title:
-          "WATCH: Passengers evacuated from hantavirus-hit cruise ship in Tenerife",
-        description:
-          "Passengers from the hantavirus-hit cruise ship MV Hondius were evacuated on Sunday after the vessel docked at Granadilla Port in Tenerife. The first flight took off in the afternoon carrying Spanish nationals home.",
-        publisher: "Euronews",
-        date: "2026-05-10",
-        sourceUrl: "https://www.euronews.com/...",
-      },
-      apiKey
-    );
-    console.log("self-test result:");
-    console.log(JSON.stringify(result, null, 2));
-    process.exit(result === undefined ? 1 : 0);
+    return {
+      kind: "relevant",
+      isRelevant: true,
+      confidence,
+      reason,
+      title,
+      description,
+    };
   }
-  console.log("Usage: ANTHROPIC_API_KEY=… node scripts/normalize-event.mjs --self-test");
+
+  return {
+    kind: "not-relevant",
+    isRelevant: false,
+    confidence,
+    reason,
+  };
 }

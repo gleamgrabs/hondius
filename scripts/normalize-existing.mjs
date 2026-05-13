@@ -80,15 +80,17 @@ for (const r of rows) {
     API_KEY
   );
 
-  // Очень грубая оценка использованных токенов
-  estTokens += Math.ceil((r.title.length + r.description.length) / 4) + 250;
+  estTokens += Math.ceil((r.title.length + r.description.length) / 4) + 400;
 
-  if (result === null) {
-    console.log("  → LLM marked as not-useful (skip; left unchanged in this backfill)");
-    skipped++;
-  } else if (result === undefined) {
-    console.log("  → API/fallback (left unchanged)");
+  if (result.kind === "error") {
+    console.log(`  → API/fallback: ${result.error} (left unchanged)`);
     fellBack++;
+  } else if (result.kind === "not-relevant") {
+    console.log(
+      `  → LLM marked NOT relevant (confidence ${result.confidence.toFixed(2)}): ${result.reason}`
+    );
+    console.log("    (skip; backfill leaves status unchanged — use judge-pending for that)");
+    skipped++;
   } else if (
     result.title === r.title &&
     result.description === r.description

@@ -195,6 +195,30 @@ function EventCard({
           <p className="text-sm text-color-text-muted leading-relaxed">
             {event.description}
           </p>
+          {typeof event.llm_confidence === "number" && (
+            <p className="font-data text-[10px] mt-2 text-color-text-subtle uppercase tracking-wider">
+              <span
+                style={{
+                  color:
+                    event.llm_confidence >= 0.85
+                      ? "var(--color-success)"
+                      : event.llm_confidence >= 0.7
+                      ? "var(--color-warning)"
+                      : "var(--color-accent)",
+                }}
+              >
+                LLM {event.approved_by === "auto-llm" || event.approved_by === "auto-llm-judge"
+                  ? "auto-approve"
+                  : "judgement"}
+                {" · "}confidence {event.llm_confidence.toFixed(2)}
+              </span>
+              {event.llm_reason && (
+                <span className="text-color-text-subtle ml-2 normal-case tracking-normal">
+                  · &ldquo;{event.llm_reason}&rdquo;
+                </span>
+              )}
+            </p>
+          )}
           <p className="font-data text-[10px] mt-2">
             <a
               href={event.source_url}
